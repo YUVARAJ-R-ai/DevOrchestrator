@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprint Multiplier — SDLC Automation Methodology</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Instrument+Serif&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0c;--surface:#111114;--surface2:#18181c;--border:#222228;
+  --text:#e8e6e0;--text2:#9a9890;--text3:#5a5850;
+  --accent:#c8ff3e;--accent2:#3effb8;--accent3:#3ea8ff;
+  --warn:#ff6b3e;--purple:#a78bfa;
+  --font-display:'Instrument Serif',serif;
+  --font-mono:'Space Mono',monospace;
+  --font-body:'DM Sans',sans-serif;
+}
+html{scroll-behavior:smooth;background:var(--bg);color:var(--text);font-family:var(--font-body)}
+body{overflow-x:hidden}
+
+.grain{position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,62,.06) 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);animation:pulse 6s ease-in-out infinite}
+.hero::after{content:'';position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(62,255,184,.04) 0%,transparent 70%);top:30%;left:30%;animation:pulse 8s ease-in-out infinite 2s}
+@keyframes pulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:1}50%{transform:translate(-50%,-50%) scale(1.15);opacity:.6}}
+
+.hero-badge{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(200,255,62,.2);padding:.4rem 1.2rem;border-radius:99px;margin-bottom:2rem;opacity:0;animation:fadeUp .8s ease forwards .3s}
+.hero h1{font-family:var(--font-display);font-size:clamp(3rem,8vw,6.5rem);font-weight:400;line-height:1;letter-spacing:-.03em;margin-bottom:1.5rem;opacity:0;animation:fadeUp .8s ease forwards .5s}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero-sub{font-size:1.1rem;color:var(--text2);max-width:560px;line-height:1.7;opacity:0;animation:fadeUp .8s ease forwards .7s}
+.hero-metrics{display:flex;gap:2rem;margin-top:3rem;opacity:0;animation:fadeUp .8s ease forwards .9s}
+.hero-metric{text-align:center}
+.hero-metric .val{font-family:var(--font-mono);font-size:2rem;font-weight:700;color:var(--accent)}
+.hero-metric .label{font-size:.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-top:.3rem}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+
+.scroll-hint{position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:.5rem;opacity:0;animation:fadeUp .8s ease forwards 1.2s}
+.scroll-hint span{font-size:.7rem;color:var(--text3);letter-spacing:.15em;text-transform:uppercase}
+.scroll-arrow{width:1px;height:40px;background:linear-gradient(to bottom,var(--text3),transparent);position:relative}
+.scroll-arrow::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bounce 2s ease-in-out infinite}
+@keyframes bounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-20px)}}
+
+section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
+.section-tag{font-family:var(--font-mono);font-size:.65rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent2);margin-bottom:1rem}
+.section-title{font-family:var(--font-display);font-size:clamp(2rem,4vw,3.5rem);font-weight:400;line-height:1.15;margin-bottom:1rem}
+.section-desc{font-size:1rem;color:var(--text2);max-width:600px;line-height:1.7;margin-bottom:3rem}
+
+.reveal{opacity:0;transform:translateY(40px);transition:opacity .7s ease,transform .7s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.reveal-delay-1{transition-delay:.1s}
+.reveal-delay-2{transition-delay:.2s}
+.reveal-delay-3{transition-delay:.3s}
+.reveal-delay-4{transition-delay:.4s}
+
+.philosophy{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin-bottom:4rem}
+.philosophy-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2rem;position:relative;overflow:hidden;transition:border-color .3s,transform .3s}
+.philosophy-card:hover{border-color:var(--accent);transform:translateY(-4px)}
+.philosophy-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .3s}
+.philosophy-card:hover::before{opacity:1}
+.philosophy-card .num{font-family:var(--font-mono);font-size:.7rem;color:var(--accent);margin-bottom:1rem}
+.philosophy-card h3{font-family:var(--font-display);font-size:1.5rem;margin-bottom:.5rem}
+.philosophy-card p{font-size:.85rem;color:var(--text2);line-height:1.6}
+
+.divider-line{width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:2rem 0}
+
+.track-header{display:flex;align-items:center;gap:1.5rem;margin-bottom:2.5rem}
+.track-badge{font-family:var(--font-mono);font-size:.65rem;letter-spacing:.15em;text-transform:uppercase;padding:.4rem 1rem;border-radius:99px;font-weight:700}
+.track-badge.oss{background:rgba(62,255,184,.1);color:var(--accent2);border:1px solid rgba(62,255,184,.2)}
+.track-badge.azure{background:rgba(62,168,255,.1);color:var(--accent3);border:1px solid rgba(62,168,255,.2)}
+.track-title{font-family:var(--font-display);font-size:2rem}
+
+.pipeline{position:relative;display:flex;flex-direction:column;gap:0}
+.pipeline::before{content:'';position:absolute;left:24px;top:30px;bottom:30px;width:1px;background:linear-gradient(to bottom,var(--accent2),var(--accent2) 50%,transparent);opacity:.2}
+.pipeline.azure::before{background:linear-gradient(to bottom,var(--accent3),var(--accent3) 50%,transparent)}
+
+.pipe-stage{display:flex;gap:1.5rem;padding:1.2rem 0;position:relative}
+.pipe-dot{width:48px;height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:12px;font-family:var(--font-mono);font-size:.75rem;font-weight:700;position:relative;z-index:1;transition:transform .3s,box-shadow .3s}
+.pipe-dot.oss{background:rgba(62,255,184,.08);color:var(--accent2);border:1px solid rgba(62,255,184,.15)}
+.pipe-dot.azure{background:rgba(62,168,255,.08);color:var(--accent3);border:1px solid rgba(62,168,255,.15)}
+.pipe-stage:hover .pipe-dot{transform:scale(1.1);box-shadow:0 0 30px rgba(62,255,184,.15)}
+.pipe-stage:hover .pipe-dot.azure{box-shadow:0 0 30px rgba(62,168,255,.15)}
+
+.pipe-content{flex:1;min-width:0}
+.pipe-content h4{font-size:1rem;font-weight:500;margin-bottom:.3rem;display:flex;align-items:center;gap:.6rem}
+.pipe-content h4 .tool{font-family:var(--font-mono);font-size:.7rem;padding:.15rem .5rem;border-radius:4px;font-weight:400}
+.tool.oss{background:rgba(62,255,184,.08);color:var(--accent2)}
+.tool.azure{background:rgba(62,168,255,.08);color:var(--accent3)}
+.tool.agent{background:rgba(167,139,250,.08);color:var(--purple)}
+.pipe-content p{font-size:.82rem;color:var(--text2);line-height:1.6}
+.pipe-content .auto-tag{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-top:.4rem;display:inline-block}
+.pipe-content .human-tag{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--purple);margin-top:.4rem;display:inline-block}
+
+.two-tracks{display:grid;grid-template-columns:1fr 1fr;gap:3rem;position:relative}
+.two-tracks::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,var(--border),transparent)}
+@media(max-width:900px){.two-tracks{grid-template-columns:1fr;gap:4rem}.two-tracks::before{display:none}}
+
+.mesh-section{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:3rem;margin:4rem 0;position:relative;overflow:hidden}
+.mesh-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top right,rgba(167,139,250,.04),transparent 60%);pointer-events:none}
+.mesh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:2rem}
+.mesh-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.2rem;transition:border-color .3s}
+.mesh-card:hover{border-color:var(--purple)}
+.mesh-card .icon{font-size:1.2rem;margin-bottom:.6rem}
+.mesh-card h4{font-size:.9rem;margin-bottom:.3rem}
+.mesh-card p{font-size:.78rem;color:var(--text2);line-height:1.5}
+
+.rotation-section{border:1px solid var(--border);border-radius:24px;padding:3rem;margin:4rem 0;position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(255,107,62,.02),rgba(200,255,62,.02))}
+.rotation-flow{display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap;margin-top:2rem}
+.rot-node{padding:.8rem 1.5rem;border-radius:12px;font-family:var(--font-mono);font-size:.75rem;border:1px solid var(--border);background:var(--surface);position:relative;transition:all .3s}
+.rot-node:hover{border-color:var(--warn);transform:scale(1.05)}
+.rot-node .status{position:absolute;top:-.3rem;right:-.3rem;width:10px;height:10px;border-radius:50%;border:2px solid var(--bg)}
+.rot-node .status.active{background:var(--accent)}
+.rot-node .status.cooldown{background:var(--warn);animation:blink 1.5s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.rot-arrow{color:var(--text3);font-size:1.2rem}
+
+.config-block{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2rem;margin-top:2rem;font-family:var(--font-mono);font-size:.78rem;line-height:2;color:var(--text2);overflow-x:auto;position:relative}
+.config-block::before{content:'orchestrator.yaml';position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase}
+.config-block .key{color:var(--accent2)}
+.config-block .key.az{color:var(--accent3)}
+.config-block .val{color:var(--text)}
+.config-block .comment{color:var(--text3)}
+
+.time-section{margin:4rem 0}
+.time-bar-container{margin-top:2rem}
+.time-bar-label{display:flex;justify-content:space-between;font-size:.75rem;color:var(--text2);margin-bottom:.4rem}
+.time-bar{height:32px;border-radius:8px;background:var(--surface);overflow:hidden;position:relative;margin-bottom:1.5rem;border:1px solid var(--border)}
+.time-bar-fill{height:100%;border-radius:7px;display:flex;align-items:center;padding-left:12px;font-family:var(--font-mono);font-size:.65rem;font-weight:700;transition:width 1.5s ease}
+.time-bar-fill.human{background:linear-gradient(90deg,rgba(167,139,250,.25),rgba(167,139,250,.1))}
+.time-bar-fill.ai{background:linear-gradient(90deg,rgba(200,255,62,.2),rgba(62,255,184,.1))}
+.time-bar-fill.saved{background:repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(200,255,62,.03) 4px,rgba(200,255,62,.03) 8px)}
+
+.build-order{counter-reset:bo;margin-top:2rem}
+.build-step{display:flex;gap:1.5rem;padding:1.2rem 0;border-bottom:1px solid var(--border);counter-increment:bo}
+.build-step:last-child{border-bottom:none}
+.build-step::before{content:counter(bo);font-family:var(--font-mono);font-size:1.5rem;font-weight:700;color:var(--accent);min-width:2rem;padding-top:.2rem}
+.build-step h4{font-size:.95rem;margin-bottom:.2rem}
+.build-step p{font-size:.8rem;color:var(--text2);line-height:1.5}
+.build-step .timeline{font-family:var(--font-mono);font-size:.7rem;color:var(--accent2);margin-top:.3rem}
+
+footer{text-align:center;padding:4rem 2rem;color:var(--text3);font-size:.75rem}
+footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);margin-bottom:.5rem}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+
+<header class="hero">
+  <div class="hero-badge">SDLC automation methodology</div>
+  <h1>Sprint <em>Multiplier</em></h1>
+  <p class="hero-sub">An AI-augmented development orchestrator where humans own the thinking and the machine owns the plumbing. Two tracks, one goal: double your sprint velocity.</p>
+  <div class="hero-metrics">
+    <div class="hero-metric"><div class="val">2&times;</div><div class="label">Sprint velocity</div></div>
+    <div class="hero-metric"><div class="val">4</div><div class="label">Dev team</div></div>
+    <div class="hero-metric"><div class="val">1</div><div class="label">Human gate</div></div>
+  </div>
+  <div class="scroll-hint">
+    <span>Scroll to explore</span>
+    <div class="scroll-arrow"></div>
+  </div>
+</header>
+
+<section>
+  <div class="reveal">
+    <div class="section-tag">Core philosophy</div>
+    <div class="section-title">Human owns the thinking.<br>Orchestrator owns the plumbing.</div>
+    <p class="section-desc">Out of a 10-day sprint, only ~4 days is actual feature work. The other 6 is friction — branch setup, PR mechanics, waiting on review, context switching. The orchestrator absorbs that friction.</p>
+  </div>
+
+  <div class="philosophy">
+    <div class="philosophy-card reveal reveal-delay-1">
+      <div class="num">01</div>
+      <h3>Shared context mesh</h3>
+      <p>Every dev's AI co-pilot reads and writes to a shared memory bus. The team thinks as one brain — conflicts caught before they happen, not after a merge war.</p>
+    </div>
+    <div class="philosophy-card reveal reveal-delay-2">
+      <div class="num">02</div>
+      <h3>Plug and play</h3>
+      <p>One YAML config file per team member. Point at the shared infra, pick your agent (claude / agy / codex), go. Zero onboarding friction.</p>
+    </div>
+    <div class="philosophy-card reveal reveal-delay-3">
+      <div class="num">03</div>
+      <h3>Human-in-the-loop</h3>
+      <p>The TL approval gate is the only manual checkpoint. Everything before and after is automated. Creative decisions stay with humans — always.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="reveal">
+    <div class="section-tag">The pipeline — two tracks</div>
+    <div class="section-title">Same orchestrator.<br>Different infrastructure.</div>
+    <p class="section-desc">The orchestrator is agent-agnostic and infra-agnostic. The same 7-stage pipeline runs on fully open source tools or on Azure DevOps — just swap the config.</p>
+  </div>
+
+  <div class="two-tracks">
+    <div class="reveal">
+      <div class="track-header">
+        <span class="track-badge oss">Open source</span>
+        <span class="track-title">Self-hosted freedom</span>
+      </div>
+      <div class="pipeline">
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">01</div>
+          <div class="pipe-content">
+            <h4>Task fetch <span class="tool oss">Plane</span></h4>
+            <p>Poll the Plane sprint board via REST API. Fetch stories assigned to this dev. Surface them in the terminal.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">02</div>
+          <div class="pipe-content">
+            <h4>Branch + scaffold <span class="tool oss">Gitea</span> <span class="tool agent">claude -p</span></h4>
+            <p>Create feature branch via Gitea API. Dev agent (claude or agy subprocess) scaffolds boilerplate. Developer writes the actual logic.</p>
+            <span class="human-tag">human creates</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">03</div>
+          <div class="pipe-content">
+            <h4>Auto-checks <span class="tool agent">agy -p</span></h4>
+            <p>On every push: lint, secrets scan (no .env leaks), unit tests. Agent can attempt autofix on failure with --autofix flag.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">04</div>
+          <div class="pipe-content">
+            <h4>PR raised <span class="tool oss">Gitea API</span></h4>
+            <p>Once checks pass, orchestrator opens a PR — description auto-generated from commit history, linked to the Plane task card.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">05</div>
+          <div class="pipe-content">
+            <h4>TL approval <span class="tool agent">review agent</span></h4>
+            <p>TL's orchestrator surfaces: clean diff, test results, CI status, task context. One keypress to approve.</p>
+            <span class="human-tag">human decides</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">06</div>
+          <div class="pipe-content">
+            <h4>CI/CD pipeline <span class="tool oss">Woodpecker CI</span></h4>
+            <p>YAML-driven pipelines, Gitea-native. Self-hosted runners. Build, test, lint, security scan — all defined in the repo.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot oss">07</div>
+          <div class="pipe-content">
+            <h4>Deploy + notify <span class="tool oss">Coolify</span> <span class="tool oss">Mattermost</span></h4>
+            <p>Deploy webhook fires to Coolify (open source Heroku). Health check. Task closed on Plane. Team notified via Mattermost.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="reveal reveal-delay-2">
+      <div class="track-header">
+        <span class="track-badge azure">Azure DevOps</span>
+        <span class="track-title">Enterprise grade</span>
+      </div>
+      <div class="pipeline azure">
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">01</div>
+          <div class="pipe-content">
+            <h4>Task fetch <span class="tool azure">Azure Boards</span></h4>
+            <p>Query work items via Azure DevOps REST API. Filter by assigned-to, sprint iteration, and state. Surface in terminal.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">02</div>
+          <div class="pipe-content">
+            <h4>Branch + scaffold <span class="tool azure">Azure Repos</span> <span class="tool agent">claude -p</span></h4>
+            <p>Create feature branch via Azure Repos API. Claude or agy subprocess generates boilerplate. Dev writes real logic.</p>
+            <span class="human-tag">human creates</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">03</div>
+          <div class="pipe-content">
+            <h4>Auto-checks <span class="tool agent">agy -p</span></h4>
+            <p>Same agent-powered checks: lint, secrets scan, unit tests. Identical subprocess calls — only the git remote differs.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">04</div>
+          <div class="pipe-content">
+            <h4>PR raised <span class="tool azure">Azure Repos API</span></h4>
+            <p>Pull request opened via API — auto-linked to the Azure Board work item, description generated, reviewers assigned by policy.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">05</div>
+          <div class="pipe-content">
+            <h4>TL approval <span class="tool agent">review agent</span></h4>
+            <p>Same TL experience — diff, test results, task context in one view. Azure has branch policies; approval maps to the required reviewer gate.</p>
+            <span class="human-tag">human decides</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">06</div>
+          <div class="pipe-content">
+            <h4>CI/CD pipeline <span class="tool azure">Azure Pipelines</span></h4>
+            <p>YAML pipelines in azure-pipelines.yml. Microsoft-hosted or self-hosted agents. Built-in caching, parallel jobs, environments.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+        <div class="pipe-stage">
+          <div class="pipe-dot azure">07</div>
+          <div class="pipe-content">
+            <h4>Deploy + notify <span class="tool azure">App Service</span> <span class="tool azure">Teams</span></h4>
+            <p>Deploy to Azure App Service / AKS via release pipeline. Health check. Work item moved to Done. Teams webhook notification.</p>
+            <span class="auto-tag">automated</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="mesh-section reveal">
+    <div class="section-tag">Layer 2 — the novel part</div>
+    <div class="section-title">Shared context mesh</div>
+    <p class="section-desc">The thing that doesn't exist in any tool yet. Every co-pilot reads and writes a shared memory bus — SQLite + JSON on the shared server — so the team thinks as one brain.</p>
+    <div class="mesh-grid">
+      <div class="mesh-card">
+        <div class="icon">&#9998;</div>
+        <h4>Writes on task start</h4>
+        <p>Logs which modules you're touching, which task, your branch. Other co-pilots see it instantly.</p>
+      </div>
+      <div class="mesh-card">
+        <div class="icon">&#9737;</div>
+        <h4>Writes on decisions</h4>
+        <p>"Switching JWT to session-based" — logged automatically. Every co-pilot queries this before acting.</p>
+      </div>
+      <div class="mesh-card">
+        <div class="icon">&#9888;</div>
+        <h4>Conflict detection</h4>
+        <p>Dev 2 touches a module Dev 1 is refactoring? Warning surfaced. Not a block — a nudge. Humans decide.</p>
+      </div>
+      <div class="mesh-card">
+        <div class="icon">&#8635;</div>
+        <h4>Reads before acting</h4>
+        <p>"Has anyone touched auth/ this sprint?" — answered before the first line of code. Collision avoided.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="rotation-section reveal">
+    <div class="section-tag">Layer 4 — rate limit bypass</div>
+    <div class="section-title">Account rotation with tmux</div>
+    <p class="section-desc" style="margin-bottom:0">Each tmux pane = one authenticated session. When Account A hits a rate limit, the orchestrator routes to Account B. No crash, no lost work.</p>
+    <div class="rotation-flow">
+      <div class="rot-node">
+        claude-pro-1
+        <div class="status active"></div>
+      </div>
+      <div class="rot-arrow">&rarr;</div>
+      <div class="rot-node">
+        claude-pro-2
+        <div class="status cooldown"></div>
+      </div>
+      <div class="rot-arrow">&rarr;</div>
+      <div class="rot-node">
+        agy-google-ai
+        <div class="status active"></div>
+      </div>
+      <div class="rot-arrow">&rarr;</div>
+      <div class="rot-node">
+        agy-backup
+        <div class="status active"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="reveal">
+    <div class="section-tag">The config — plug and play</div>
+    <div class="section-title">One file. Any track.</div>
+    <p class="section-desc">New team member setup is one YAML file. Swap the URLs to switch between open source and Azure DevOps.</p>
+  </div>
+
+  <div class="two-tracks" style="gap:2rem">
+    <div class="config-block reveal">
+      <span class="key">board_url</span>: <span class="val">https://plane.team.com</span><br>
+      <span class="key">git_url</span>: <span class="val">https://gitea.team.com</span><br>
+      <span class="key">ci_url</span>: <span class="val">https://woodpecker.team.com</span><br>
+      <span class="key">deploy_url</span>: <span class="val">https://coolify.team.com</span><br>
+      <span class="key">notify_url</span>: <span class="val">https://mattermost.team.com/hook</span><br>
+      <span class="key">agent</span>: <span class="val">claude</span> <span class="comment"># or: agy</span><br>
+      <span class="key">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span>
+    </div>
+    <div class="config-block reveal reveal-delay-2" style="margin-top:0">
+      <span style="position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase">orchestrator.yaml (azure)</span>
+      <span class="key az">board_url</span>: <span class="val">https://dev.azure.com/org/proj</span><br>
+      <span class="key az">git_url</span>: <span class="val">https://dev.azure.com/org/proj/_git</span><br>
+      <span class="key az">ci_url</span>: <span class="val">https://dev.azure.com/org/proj/_build</span><br>
+      <span class="key az">deploy_url</span>: <span class="val">https://portal.azure.com/app-svc</span><br>
+      <span class="key az">notify_url</span>: <span class="val">https://teams.webhook.com/hook</span><br>
+      <span class="key az">agent</span>: <span class="val">claude</span> <span class="comment"># or: agy</span><br>
+      <span class="key az">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span>
+    </div>
+  </div>
+</section>
+
+<section class="time-section">
+  <div class="reveal">
+    <div class="section-tag">The math</div>
+    <div class="section-title">Where the time goes</div>
+  </div>
+  <div class="time-bar-container reveal reveal-delay-1">
+    <div class="time-bar-label"><span>Boilerplate &amp; setup</span><span>15%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="15" style="width:0%"><span style="color:var(--accent)">AI absorbs</span></div></div>
+
+    <div class="time-bar-label"><span>PR mechanics &amp; CI</span><span>10%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="10" style="width:0%"><span style="color:var(--accent)">AI absorbs</span></div></div>
+
+    <div class="time-bar-label"><span>Waiting on review</span><span>20%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="15" style="width:0%"><span style="color:var(--accent)">AI — 15%</span></div></div>
+
+    <div class="time-bar-label"><span>Context switching</span><span>15%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="10" style="width:0%"><span style="color:var(--accent)">AI — 10%</span></div></div>
+
+    <div class="time-bar-label"><span>Ceremonies</span><span>10%</span></div>
+    <div class="time-bar"><div class="time-bar-fill human" data-width="10" style="width:0%"><span style="color:var(--purple)">Human keeps</span></div></div>
+
+    <div class="time-bar-label"><span>Actual feature work</span><span>35%</span></div>
+    <div class="time-bar"><div class="time-bar-fill human" data-width="35" style="width:0%"><span style="color:var(--purple)">Human keeps — this is the real work</span></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="reveal">
+    <div class="section-tag">Execution plan</div>
+    <div class="section-title">Build order</div>
+    <p class="section-desc">Start small. Get the innermost loop working first, then expand outward.</p>
+  </div>
+  <div class="build-order reveal">
+    <div class="build-step">
+      <div>
+        <h4>Per-dev co-pilot loop</h4>
+        <p>Just you, one task, claude -p as subprocess, auto-checks, auto-PR. Get the inner loop working on your machine.</p>
+        <div class="timeline">Day 1-2</div>
+      </div>
+    </div>
+    <div class="build-step">
+      <div>
+        <h4>Shared infra stack</h4>
+        <p>Docker Compose: Plane + Gitea + Woodpecker + Coolify (or connect to Azure DevOps). Run it on your homelab Debian server via Tailscale.</p>
+        <div class="timeline">Day 3-4</div>
+      </div>
+    </div>
+    <div class="build-step">
+      <div>
+        <h4>Shared context mesh</h4>
+        <p>SQLite + JSON on the shared server. ~50 lines of Python. Each co-pilot writes events, queries before acting.</p>
+        <div class="timeline">Day 5</div>
+      </div>
+    </div>
+    <div class="build-step">
+      <div>
+        <h4>Account rotation</h4>
+        <p>Tmux session pool router. Rate limit detection, automatic account switching. Add when you actually hit limits.</p>
+        <div class="timeline">Day 6</div>
+      </div>
+    </div>
+    <div class="build-step">
+      <div>
+        <h4>Team rollout</h4>
+        <p>Give each dev the orchestrator binary + their yaml config. They plug in, they're live. No training needed — the orchestrator watches, not commands.</p>
+        <div class="timeline">Week 2</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="name">Sprint Multiplier</div>
+  <p>Brainstormed by Yuvaraj &times; Claude &mdash; June 2026</p>
+  <p style="margin-top:.3rem">Human owns the thinking. Machine owns the plumbing.</p>
+</footer>
+
+<script>
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+const barObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.querySelectorAll('.time-bar-fill').forEach((bar, i) => {
+        setTimeout(() => { bar.style.width = bar.dataset.width + '%'; }, i * 150);
+      });
+    }
+  });
+}, { threshold: 0.3 });
+document.querySelectorAll('.time-bar-container').forEach(el => barObs.observe(el));
+</script>
+</body>
+</html>

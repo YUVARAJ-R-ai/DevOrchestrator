@@ -127,7 +127,7 @@ Both use the OpenAI-compatible API. Switch provider by changing `base_url` and `
 # orchestrator.yaml
 orchestrator_model:
   provider: openrouter            # or: siliconflow
-  model: deepseek/deepseek-chat   # verify exact model ID on openrouter.ai
+  model: deepseek/deepseek-v4-flash   # verify slug at openrouter.ai/models
   api_key_env: OPENROUTER_API_KEY
 
 worker_agent: claude              # or: agy, codex
@@ -146,8 +146,8 @@ client = AsyncOpenAI(
 |-------|---------------|--------|
 | Language | Python 3.12 | Already decided; asyncio handles concurrent subprocess + API calls cleanly |
 | Config schema | Pydantic v2 | Type-safe YAML parsing; catches bad configs at startup, not mid-run |
-| Brain model | DeepSeek V3 via OpenRouter | Cheap + fast for routing/prompt-gen; OpenAI-compatible API; swappable by config |
-| Brain model fallback | SiliconFlow | Cheaper but CN-hosted; use as cost fallback, not primary (latency + privacy) |
+| Brain model | DeepSeek V4 Flash via OpenRouter | 284B/13B active MoE, 83.6 tok/s, $0.14/M input; purpose-built fast tier; MIT licensed |
+| Brain model fallback | DeepSeek API direct | $0.14/M input same price, CN-hosted; use if OpenRouter adds markup |
 | LLM client | `openai` Python SDK (AsyncOpenAI) | Same SDK works for OpenRouter, SiliconFlow, and any OpenAI-compatible endpoint |
 | HTTP client | httpx (async) | Single client for all REST APIs (Plane, Gitea, Coolify, Azure DevOps) |
 | Shared mesh DB | SQLite (stdlib) | Zero extra infra; WAL mode handles concurrent writes from 4 devs |

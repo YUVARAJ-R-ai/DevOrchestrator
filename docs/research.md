@@ -1,13 +1,109 @@
-# Project Research: Sprint Multiplier
+# Project Research: DevOrchestrator
 _Generated: 2026-06-05_
 
 ## Problem & Goal
-Out of a 10-day sprint, ~60% is non-feature friction: boilerplate, PR setup, waiting on review, context switching between tasks. No existing tool automates the full SDLC loop end-to-end while remaining agent-agnostic and infra-agnostic. Sprint Multiplier absorbs that friction via a CLI orchestrator, targeting 2× sprint velocity for a 4-dev team.
+Out of a 10-day sprint, ~60% is non-feature friction: boilerplate, PR setup, waiting on review, context switching. No existing tool automates the full SDLC loop end-to-end — from task selection to deployed code — while using only a Claude Code Pro subscription (no API key). DevOrchestrator absorbs that friction: the developer picks a task and reviews the result. The machine does everything else.
 
 ## Target Users
-- **Primary**: Small dev teams (2–6 devs) who are already using AI co-pilots (Claude Code, Cursor, agy) and want to eliminate repetitive SDLC plumbing
+- **Primary**: Small dev teams (2–6 devs) already using Claude Code who want to eliminate repetitive SDLC plumbing
 - **Secondary**: Team leads who need a low-friction approval gate without losing visibility
 - **Initial**: Solo developer (Yuvaraj) dogfooding before team rollout
+
+---
+
+## The Pipeline (How It Actually Runs)
+
+```
+dev runs: devorchestrator start
+```
+
+```
+[1]  Config loads            devOrchestrator.yaml → board, git server, agent binary, role
+[2]  Task fetch              → Plane / Azure Boards REST API → tasks displayed in terminal
+[3]  Dev selects task        ← HUMAN: picks which task to work on
+[4]  Branch created          → git server API creates feature/task-slug automatically
+
+[5]  Research session        → orchestrator spawns tmux pane 1
+                               runs: claude -p "[research prompt + task description]"
+                               Claude Code reads codebase files, checks patterns, identifies
+                               relevant modules and risks using its built-in file/bash tools
+                               → writes .orchestrator/[branch]/artifact.md and exits
+
+[6]  Orchestrator polls      → watches for artifact.md to appear (inotify / file watch)
+                               renders artifact preview in terminal
+                               ← OPTIONAL HUMAN GATE: dev can edit artifact before impl
+
+[7]  Implementation session  → orchestrator spawns tmux pane 2
+                               runs: claude -p "implement .orchestrator/[branch]/artifact.md"
+                               Claude Code reads artifact + relevant files → implements
+                               dev watches tmux pane live — can intervene at any point
+
+[8]  Dev reviews output      ← HUMAN: reviews what Claude Code produced, makes fixes
+[9]  Dev runs: devorchestrator pr
+
+[10] Auto-checks             → ruff lint + gitleaks secrets scan + pytest
+     FAIL → re-invokes claude -p with failure context + artifact (--autofix)
+     PASS → continue
+
+[11] PR created              → DeepSeek V4 Flash generates PR description from git log
+                               → git server API opens PR, links to task card
+
+[12] TL notified             → Mattermost: "PR ready: [task title] by [dev]"
+[13] TL runs: devorchestrator review
+     → terminal view: diff | test results | CI status | artifact (what was planned vs built)
+     → [a] approve → merge API call | [r] reject → comment + notify dev
+
+[14] CI/CD fires             → Woodpecker CI / Azure Pipelines (YAML in repo)
+[15] Deploy                  → Coolify webhook → health check polls until green
+[16] Task closed             → board API marks Done → Mattermost team notification
+```
+
+**Human moments: [3] pick task, [6] optionally edit artifact, [8] review implementation.** Everything else is the machine.
+
+### Why two Claude sessions instead of DeepSeek for the artifact
+
+Claude Code has tools — it can read files, run bash, search the web. When the research session runs, it actually opens your codebase and understands it. A DeepSeek chat call via OpenRouter only sees the task description as text. The artifact produced by a Claude Code research session is categorically richer.
+
+DeepSeek V4 Flash is now only used for one thing: **PR description generation** — a fast, cheap text transformation from `git log` output that doesn't need codebase access. If you want to drop the OpenRouter dependency entirely, this step can also be a third Claude session.
+
+---
+
+## The Artifact
+
+The artifact is the central coordination document generated at step [6]. It is what gets passed directly to Claude Code as its implementation spec.
+
+```markdown
+# Artifact: [Task Title]
+_Task: PROJ-42 | Branch: feature/user-auth | Generated: 2026-06-05_
+
+## Context (from research sub-agent)
+- Existing auth pattern: src/middleware/auth.py uses session-based approach
+- JWT library already installed: python-jose==3.3.0
+- Related files: src/models/user.py, src/routes/api.py
+- Risk: session store not thread-safe — use Redis or switch to stateless JWT
+
+## Sub-tasks
+- [ ] Create User model with email + hashed password fields
+- [ ] Implement JWT generation helper (use existing python-jose)
+- [ ] Add POST /auth/login endpoint
+- [ ] Add POST /auth/register endpoint
+- [ ] Write auth middleware for protected routes
+- [ ] Write unit tests for all endpoints
+
+## Files to Create / Modify
+- `src/models/user.py` — add User model
+- `src/routes/auth.py` — new file, login + register
+- `src/middleware/jwt.py` — new file
+- `tests/test_auth.py` — new file
+
+## Acceptance Criteria
+- [ ] User can register with email/password
+- [ ] User receives JWT on login
+- [ ] Protected routes return 401 without valid token
+- [ ] All tests pass
+```
+
+Claude Code receives this artifact and works through it systematically. The dev watches in the tmux pane.
 
 ---
 
@@ -15,171 +111,245 @@ Out of a 10-day sprint, ~60% is non-feature friction: boilerplate, PR setup, wai
 
 | Product | Strengths | Weaknesses | Key Takeaway |
 |---------|-----------|------------|--------------|
-| **PR-Agent** (open source) | AI PR descriptions, reviews, self-hosted, no per-seat pricing | Only covers PR review step, no pipeline orchestration | Good reference for PR description generation logic |
-| **CodeRabbit / Qodo Merge** | Excellent async PR review, GitHub/GitLab native | SaaS only, single-step (review), no task fetch or deploy | Confirms the review bottleneck — 27.6% of PRs are now AI-generated |
-| **Linear + Copilot** | Best-in-class UX, task ↔ branch link | No automation layer, still requires manual branch/PR/deploy steps | Proves the demand; doesn't solve the plumbing |
-| **Tmux-Orchestrator** (absmartly) | Three-tier hierarchy, tmux process isolation pattern | Dev tooling only, no SDLC awareness, no shared context | Validates tmux as agent runtime; borrow session management pattern |
-| **AgentCollision** | File-lease system for parallel AI agents, collision queue | Only solves file-level locking, no team memory, no CI/CD | Confirms the collision problem is real and unsolved cleanly |
-| **Claude Code Agent Teams** | git worktrees per subagent, shared task list | Anthropic-internal pattern, not a packaged tool | Validates the shared task list concept; Sprint Multiplier goes further with a persistent mesh |
-| **amux / agentmaxxing** | tmux session pool, parallel agent execution guide | Manual setup, no rate-limit-aware routing, no SDLC pipeline | Confirms the pattern; Sprint Multiplier automates the rotation |
-| **LOFT / Azure AI SDLC** | Enterprise-grade agentic SDLC from Microsoft | Vendor lock-in, heavy, Azure-only, not for self-hosted teams | Shows the enterprise version of the same idea; confirms market need |
+| **PR-Agent** | AI PR descriptions, self-hosted | Single-step only, no pipeline | Borrow PR description generation pattern |
+| **CodeRabbit / Qodo Merge** | Excellent async review | SaaS, no task fetch or deploy | Confirms review bottleneck is real |
+| **Linear + Copilot** | Best-in-class UX | No automation layer, all manual | Proves demand; doesn't solve plumbing |
+| **Tmux-Orchestrator** (absmartly) | Three-tier tmux hierarchy | No SDLC awareness, no artifact system | Validates tmux as agent runtime |
+| **AgentCollision** | File-lease collision prevention | No team memory, no CI/CD | Collision problem is real and unsolved cleanly |
+| **Claude Code Agent Teams** | git worktrees, shared task list | Not a packaged tool | Validates the artifact-driven approach |
+| **amux / agentmaxxing** | tmux session pool pattern | Manual, no SDLC pipeline | Confirms account rotation pattern |
+| **LOFT / Azure AI SDLC** | Enterprise agentic SDLC | Vendor lock-in, Azure-only | Shows market need; no OSS equivalent |
 
 ---
 
 ## Feature List
 
 ### Core (MVP)
-- [ ] YAML config loader — without one-file setup, onboarding friction breaks the "plug and play" promise
-- [ ] Task fetch (Plane REST API) — the loop starts here; can't automate what you can't read
-- [ ] Branch creation (Gitea API) — eliminates the most mindless manual step
-- [ ] `claude -p` subprocess wrapper — the AI co-pilot integration; everything downstream depends on it
-- [ ] Auto-checks runner (lint + secrets scan + unit tests) — gate before PR; prevents junk PRs
-- [ ] PR creation with auto-generated description (Gitea API) — closes the inner loop; links back to task card
-- [ ] TL approval gate (terminal view: diff + test results + task context, one keypress to merge) — the only human checkpoint
-- [ ] Deploy webhook trigger (Coolify) — completes the loop; no deploy = no done
-- [ ] Task close + Mattermost notification — team visibility; confirms the automation worked
+- [ ] YAML config loader — minimal config, zero-friction onboarding
+- [ ] Task fetch (Plane REST API) — the loop starts here
+- [ ] Branch creation (Gitea API) — from task slug, automatic
+- [ ] Research sub-agent — placeholder module, pluggable; returns context.json
+- [ ] Artifact generator (DeepSeek V4 Flash) — task + research → structured sub-task spec
+- [ ] tmux subprocess spawner — launches `claude -p artifact.md` in a visible pane
+- [ ] Auto-checks runner (ruff + gitleaks + pytest) — gate before PR
+- [ ] PR creation with auto-generated description (Gitea API) — links to task card
+- [ ] TL approval gate (Rich terminal view, one keypress to merge)
+- [ ] Deploy webhook trigger (Coolify)
+- [ ] Task close + Mattermost notification
 
 ### Important (v1.1)
-- [ ] Shared context mesh (SQLite + JSON, write on task start / decisions, read before acting) — the novel differentiator; prevents merge wars before they happen
-- [ ] Conflict detection (warn when two devs touch the same module) — turns silent collisions into explicit nudges
-- [ ] Account rotation (tmux session pool, rate-limit detection, auto-switch to next account) — necessary once the team actually hits rate limits at scale
-- [ ] Azure DevOps track (Azure Boards + Repos + Pipelines + App Service + Teams) — unlocks enterprise teams; same YAML, different URLs
-- [ ] Autofix flag (`--autofix`) on check failures — agent retries the fix instead of blocking the dev
+- [ ] Shared context mesh (SQLite — who is touching what module, what decisions were made)
+- [ ] Conflict detection (warn when two devs touch the same module before they start)
+- [ ] Account rotation (tmux session pool, rate-limit detection, auto-switch)
+- [ ] Azure DevOps track (same pipeline, different adapters)
+- [ ] `agy` agent support alongside `claude`
+- [ ] Autofix flag (`--autofix`) — re-invoke agent with check failure context
 
 ### Nice-to-have (Backlog)
-- [ ] `agy` / `codex` subprocess support (agent-agnostic routing)
-- [ ] Metrics dashboard (cycle time, velocity, time-saved per sprint)
+- [ ] Research framework v1 (web search + codebase graph, not just file scan)
+- [ ] Metrics (cycle time, velocity, AI vs human time ratio)
 - [ ] Teams/Slack notification adapter
-- [ ] Web dashboard for TL (visual kanban view over the mesh)
-- [ ] Git worktree isolation per agent (prevent file-level conflicts in parallel runs)
+- [ ] Web dashboard for TL (mesh overview, PR queue)
+- [ ] Git worktree isolation per agent
 
 ### Don't Build
-- Full project management UI — Plane already does this; don't duplicate
-- CI/CD pipeline engine — Woodpecker CI handles YAML pipelines natively; just trigger it
-- In-editor IDE plugin — CLI is the correct surface; IDE plugins are maintenance sink
-- General-purpose AI memory (like mem0) — too generic; the mesh must be dev-workflow-specific to stay useful
+- Full project management UI — Plane handles this
+- CI/CD pipeline engine — Woodpecker CI handles YAML pipelines; orchestrator just triggers it
+- IDE plugin — CLI is the right surface
+- General-purpose AI memory — the mesh must stay dev-workflow-specific
 
 ---
 
 ## Task Breakdown
 
-### YAML Config Loader
-- [ ] Write Pydantic schema for `orchestrator.yaml` (S)
-- [ ] Build config loader with track auto-detection (oss vs azure from URLs) (S)
-- [ ] Write config validation error messages (S)
+### Config Loader
+- [ ] Write Pydantic schema for `devOrchestrator.yaml` (S)
+- [ ] Build loader with track auto-detection (oss vs azure from board/git URLs) (S)
+- [ ] Write clear validation errors with fix hints (S)
 
-### Task Fetch
+### Task Fetch + Selection
 - [ ] Build Plane REST API client (fetch sprint tasks by assignee + state filter) (M)
-- [ ] Write terminal task selector (Rich table, arrow-key select) (S) ← depends on: Plane client
-- [ ] Build Azure Boards REST API client (query work items by sprint iteration) (M)
+- [ ] Write Rich terminal task selector (arrow-key, shows title + priority + estimate) (S) ← depends on: Plane client
+- [ ] Build Azure Boards client (v1.1) (M)
 
-### Branch + Scaffold
+### Branch Creation
 - [ ] Build Gitea API branch creation from task slug (M)
-- [ ] Write `claude -p` subprocess wrapper (stdin prompt → stdout capture, timeout, error handling) (M)
-- [ ] Build scaffold prompt template (task description → boilerplate generation request) (S) ← depends on: subprocess wrapper
-- [ ] Build Azure Repos API branch creation (M)
+- [ ] Build Azure Repos branch creation (v1.1) (M)
+
+### Research Sub-agent (Placeholder → Framework Later)
+- [ ] Write codebase scanner (find files relevant to task via keyword + imports) (M)
+- [ ] Write context.json schema (relevant_files, patterns, risks, notes) (S)
+- [ ] Design pluggable interface so research framework slots in later (S)
+
+### Artifact Generator
+- [ ] Build DeepSeek V4 Flash client (AsyncOpenAI, OpenRouter base_url) (S)
+- [ ] Write artifact prompt template (task + context.json → artifact.md) (M) ← depends on: research sub-agent
+- [ ] Write artifact file writer (.orchestrator/[branch]/artifact.md) (S)
+- [ ] Write artifact renderer (Rich preview in terminal before spawning agent) (S)
+
+### tmux Agent Subprocess
+- [ ] Write libtmux session spawner (create named pane for each task) (M)
+- [ ] Write claude -p invocation with artifact path as prompt (M) ← depends on: artifact generator
+- [ ] Write pane monitor (detect when claude finishes, surface exit status) (S)
+- [ ] Write agy invocation adapter (v1.1) (M)
 
 ### Auto-checks
-- [ ] Build check runner orchestrator (lint via ruff, secrets via gitleaks, tests via pytest) (M)
-- [ ] Write check result formatter (Rich panel, pass/fail per check) (S) ← depends on: check runner
-- [ ] Implement `--autofix` flag (re-invoke subprocess wrapper with failure context) (M) ← depends on: subprocess wrapper + check runner
+- [ ] Build check runner (ruff, gitleaks, pytest as subprocesses, structured results) (M)
+- [ ] Write Rich pass/fail result panel (S)
+- [ ] Implement --autofix (re-invoke agent with failure + artifact context) (M) ← depends on: tmux spawner
 
 ### PR Creation
-- [ ] Build PR description generator (parse `git log` + task title → structured description) (M)
-- [ ] Build Gitea PR creation API call (link to task card, assign reviewer from config) (M) ← depends on: description generator
-- [ ] Build Azure Repos PR creation API call (auto-link work item, assign required reviewer) (M) ← depends on: description generator
+- [ ] Build PR description generator (DeepSeek: git log + artifact → description) (M)
+- [ ] Build Gitea PR API call (link task card, assign TL as reviewer) (M) ← depends on: description generator
+- [ ] Build Azure Repos PR API call (v1.1) (M)
 
 ### TL Approval Gate
-- [ ] Build TL terminal view: diff pane + test summary + task context (Rich layout) (L)
-- [ ] Write approval keypress handler → merge API call → branch delete (M) ← depends on: TL view
-- [ ] Write rejection handler → comment on PR + notify dev via Mattermost (S) ← depends on: TL view
+- [ ] Build Rich TL view: diff pane + test summary + artifact + CI status (L)
+- [ ] Write [a] approve → merge API + branch delete (M) ← depends on: TL view
+- [ ] Write [r] reject → PR comment + Mattermost ping to dev (S)
 
 ### Deploy + Notify
-- [ ] Build Coolify deploy webhook trigger + health check poller (M)
-- [ ] Build Azure App Service release pipeline trigger (M)
-- [ ] Write task-close API call (Plane / Azure Boards) after deploy success (S) ← depends on: deploy trigger
-- [ ] Write Mattermost webhook notification (deploy result + task link) (S)
+- [ ] Build Coolify webhook trigger + health check poller (M)
+- [ ] Write task-close API call (Plane) after deploy success (S)
+- [ ] Write Mattermost webhook notification (S)
 
 ### Shared Context Mesh (v1.1)
-- [ ] Design SQLite schema: `events(id, dev, module, event_type, payload, ts)` (S)
-- [ ] Write mesh writer: emit on task-start, on branch-create, on decision log (M) ← depends on: schema
-- [ ] Write mesh reader: `who_is_touching(module)`, `what_decisions_made()` (S) ← depends on: writer
-- [ ] Build conflict detector: cross-ref active modules on task-start, surface warning (M) ← depends on: mesh reader
+- [ ] Design SQLite schema: events(dev, module, event_type, payload, ts) (S)
+- [ ] Write mesh writer: emit on branch-create, on artifact-generated, on decisions (M)
+- [ ] Write mesh reader: who_is_touching(module), recent_decisions() (S)
+- [ ] Build conflict detector: warn on module overlap at task-start (M)
 
 ### Account Rotation (v1.1)
-- [ ] Build tmux session pool manager (create N sessions per config, name by account) (L)
-- [ ] Write rate-limit detector (parse `claude -p` stderr for limit signals) (M)
-- [ ] Write routing logic (round-robin, skip sessions in cooldown) (M) ← depends on: pool manager + detector
-- [ ] Integrate routing into subprocess wrapper (S) ← depends on: routing logic
+- [ ] Build tmux session pool (N sessions, named by account) (L)
+- [ ] Write rate-limit detector (parse claude stderr for limit signals) (M)
+- [ ] Write round-robin router (skip sessions in cooldown) (M)
+- [ ] Integrate into tmux agent spawner (S)
 
 ---
 
 ## Tech Recommendations
 
-### Two-model architecture
-The orchestrator uses two distinct model tiers:
-- **Brain model** (DeepSeek V3 via OpenRouter) — all orchestration logic: task parsing, prompt generation, PR descriptions, routing decisions, mesh queries. Fast, cheap, runs constantly.
-- **Worker model** (`claude -p` sessions) — actual code writing, test generation, autofix. Only invoked when a human is producing a feature. Expensive model, used sparingly.
+### Model Architecture
+Two tiers — the brain handles orchestration logic, Claude Code handles implementation:
 
-Both use the OpenAI-compatible API. Switch provider by changing `base_url` and `api_key_env` in config — no code changes.
+| Tier | Tool | Role | Cost |
+|------|------|------|------|
+| **Brain** | DeepSeek V4 Flash (OpenRouter) | Artifact generation, PR descriptions, routing decisions | $0.14/M tokens |
+| **Worker** | `claude` CLI (Code Pro subscription) | Actual code implementation in tmux pane | Flat Pro subscription |
+
+Claude Code is invoked as a CLI subprocess — **no API key required**. The dev must be logged in via `claude auth login` with their Pro account. The orchestrator calls the same `claude` binary the dev already uses.
 
 ```yaml
-# orchestrator.yaml
-orchestrator_model:
-  provider: openrouter            # or: siliconflow
-  model: deepseek/deepseek-v4-flash   # verify slug at openrouter.ai/models
-  api_key_env: OPENROUTER_API_KEY
+# devOrchestrator.yaml — full config, nothing else needed
+name: yuvaraj
+role: dev                   # or: tl
+agent: claude               # binary in PATH, logged in via Pro subscription
 
-worker_agent: claude              # or: agy, codex
+board:
+  type: plane
+  url: https://plane.team.internal
+  token_env: PLANE_API_KEY
+
+git:
+  type: gitea
+  url: https://gitea.team.internal
+  token_env: GITEA_TOKEN
+
+brain:
+  provider: openrouter
+  model: deepseek/deepseek-v4-flash
+  token_env: OPENROUTER_API_KEY
+
+notify:
+  type: mattermost
+  webhook_env: MATTERMOST_WEBHOOK
 ```
 
 ```python
-# Single client, provider-swappable
-from openai import AsyncOpenAI
-client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",   # siliconflow: https://api.siliconflow.cn/v1
-    api_key=os.environ[config.orchestrator_model.api_key_env],
+# Claude Code invocation — no API key, uses logged-in Pro session
+import subprocess
+result = subprocess.run(
+    ["claude", "-p", artifact_content],
+    capture_output=True, text=True
+)
+
+# Or via tmux (for live visibility)
+import libtmux
+session.new_window(window_name=branch).attached_pane.send_keys(
+    f"claude -p \"$(cat {artifact_path})\""
 )
 ```
 
-| Layer | Recommendation | Reason |
-|-------|---------------|--------|
-| Language | Python 3.12 | Already decided; asyncio handles concurrent subprocess + API calls cleanly |
-| Config schema | Pydantic v2 | Type-safe YAML parsing; catches bad configs at startup, not mid-run |
-| Brain model | DeepSeek V4 Flash via OpenRouter | 284B/13B active MoE, 83.6 tok/s, $0.14/M input; purpose-built fast tier; MIT licensed |
-| Brain model fallback | DeepSeek API direct | $0.14/M input same price, CN-hosted; use if OpenRouter adds markup |
-| LLM client | `openai` Python SDK (AsyncOpenAI) | Same SDK works for OpenRouter, SiliconFlow, and any OpenAI-compatible endpoint |
-| HTTP client | httpx (async) | Single client for all REST APIs (Plane, Gitea, Coolify, Azure DevOps) |
-| Shared mesh DB | SQLite (stdlib) | Zero extra infra; WAL mode handles concurrent writes from 4 devs |
-| Worker agent | `claude -p` via `subprocess.run` | Non-interactive mode; stdout capture; use `claude setup-token` for CI |
-| Session management | libtmux | Python bindings for tmux; battle-tested; used by absmartly/Tmux-Orchestrator |
-| Terminal UI | Rich | Tables + panels for task selector and TL approval view; no heavy framework |
-| Secrets scanning | gitleaks (subprocess) | Industry standard; runs as a subprocess call; zero Python dependency |
-| Packaging | uv + pyproject.toml | Fast installs; reproducible envs; single `uv run orchestrator` entry point |
-| Infra | Docker Compose on Debian/Tailscale | Already planned; one `docker compose up` for full OSS stack |
+### Full Stack
+
+| Layer | Choice | Reason |
+|-------|--------|--------|
+| Language | Python 3.12 | asyncio for concurrent API calls; subprocess for agent invocation |
+| Config | Pydantic v2 | Type-safe YAML; catches bad config at startup with clear error messages |
+| Brain model | DeepSeek V4 Flash via OpenRouter | 83.6 tok/s, $0.14/M input; artifact generation + PR descriptions |
+| Worker agent | `claude` CLI (Pro subscription) | No API key; already installed; runs in tmux for live visibility |
+| LLM client | `openai` SDK (AsyncOpenAI, custom base_url) | OpenRouter + any future provider with zero code change |
+| HTTP client | httpx (async) | All REST APIs: Plane, Gitea, Coolify, Mattermost |
+| Mesh DB | SQLite (stdlib, WAL mode) | Zero infra; handles 4-dev concurrent writes |
+| Session manager | libtmux | Python tmux bindings; spawn + monitor agent panes |
+| Terminal UI | Rich | Task selector, artifact preview, TL approval view |
+| Secrets scanner | gitleaks (subprocess) | Zero Python deps; industry standard |
+| Packaging | uv + pyproject.toml | Single entry point: `uvx devorchestrator start` |
+| Shared infra | Docker Compose on Debian via Tailscale | One `docker compose up` for full OSS stack |
+
+---
+
+## Setup (Seamless by Design)
+
+**TL does once:**
+```bash
+# 1. On server: docker compose up -d
+#    → Plane + Gitea + Woodpecker CI + Coolify + Mattermost
+
+# 2. Commit devOrchestrator.yaml.template to repo (all shared URLs pre-filled)
+# 3. Done
+```
+
+**Each dev does once:**
+```bash
+# 1. Install devOrchestrator
+uvx install devorchestrator   # or: pip install devorchestrator
+
+# 2. Copy template, fill in 4 personal lines
+cp devOrchestrator.yaml.template devOrchestrator.yaml
+# edit: name, role, and set env vars in .env
+
+# 3. Init
+devorchestrator init   # tests all connections, registers in mesh, done
+
+# 4. Go
+devorchestrator start
+```
+
+Total new-member setup time: under 10 minutes. No documentation to read — the CLI guides each step.
 
 ---
 
 ## Risks & Open Decisions
 
 ### Risks
-- **`claude -p` pricing/API change** (June 2026 pricing split surfaced in research) — mitigation: use Claude Agent SDK (`pip install claude-agent-sdk`) as the subprocess layer; not just raw CLI
-- **Rate limits under team load** — mitigation: account rotation is planned (Layer 4, Day 6); build detection early even before rotation is wired
-- **SQLite concurrent writes (mesh)** — mitigation: enable WAL mode at init; all writes are short and infrequent (event-per-task)
-- **Plane/Gitea API instability** (smaller OSS projects) — mitigation: thin adapter pattern; each API is one class, swap without touching orchestrator logic
-- **Azure DevOps API complexity** (PAT scopes, nested org/project/repo paths) — mitigation: build OSS track first, add Azure as v1.1 after core loop is validated
-- **Team adoption friction** — mitigation: zero-training design (orchestrator surfaces, doesn't command); one YAML file; TL gate is the only new habit required
+- **Claude Code CLI breaking changes** — orchestrator calls the `claude` binary as a subprocess; major CLI changes could break invocation. Mitigation: pin the claude CLI version in devOrchestrator's dependencies; test against new releases
+- **Rate limits on Pro subscription** — under heavy team load, a single Pro account hits limits. Mitigation: account rotation (v1.1); detect limit signals in stderr early
+- **Research sub-agent quality** — poor research = poor artifact = poor implementation. Mitigation: build the research module iteratively; artifact preview step lets dev correct before agent runs
+- **SQLite concurrent writes (mesh)** — 4 devs writing simultaneously. Mitigation: WAL mode enabled at init; writes are short event inserts
+- **Plane/Gitea API stability** — smaller OSS projects, less stable APIs. Mitigation: thin adapter pattern per provider; swap without touching pipeline logic
+- **Team adoption** — any new tool creates overhead. Mitigation: zero-config design; `devorchestrator start` is the only command a dev needs to learn
 
 ### Open Decisions
-- [ ] **Daemon vs per-invocation**: Should the orchestrator run as a persistent background daemon (better for rate-limit detection and mesh sync) or be invoked per-task (simpler MVP)? → Recommend: per-task invocation for MVP, daemon wrapper in v1.1
-- [ ] **Azure DevOps in MVP?** → No. OSS track only for Day 1–6. Azure is v1.1 — validate the pipeline shape first
-- [ ] **agy support in MVP?** → No. `claude -p` only. Agent-agnostic routing is v1.1 once the subprocess interface is stable
-- [ ] **Mesh as embedded module or standalone service?** → Embedded Python module for MVP (SQLite file on shared server). Extract to microservice only if a web dashboard is needed
-- [ ] **Secrets in `orchestrator.yaml`?** → API tokens via environment variables only (`.env` loaded by orchestrator at startup). Never written to YAML. Document this clearly
+- [ ] **Artifact format: Markdown vs JSON?** → Markdown — Claude Code reads it naturally as a prompt; JSON is for the research context.json only
+- [ ] **Research sub-agent in MVP or stub?** → Stub for MVP (simple codebase keyword scan). Full research framework is its own project milestone
+- [ ] **tmux visibility: mandatory or optional?** → Mandatory for MVP — the dev watching the pane is a feature, not overhead. Headless mode in v1.1
+- [ ] **Azure DevOps in MVP?** → No. OSS track only. Validate pipeline shape first
+- [ ] **agy in MVP?** → No. `claude` CLI only. Agent-agnostic routing in v1.1
 
 ---
 
 ## GitHub References
-- [absmartly/Tmux-Orchestrator](https://github.com/absmartly/Tmux-Orchestrator) — three-tier tmux hierarchy; study the session spawn + heartbeat monitor pattern
-- [raine/tmux-agent-usage](https://github.com/raine/tmux-agent-usage) — rate limit display from tmux status bar; borrow the Claude rate-limit stderr parsing approach
-- [awslabs/cli-agent-orchestrator](https://github.com/awslabs/cli-agent-orchestrator) — supervisor-worker pattern over MCP; reference for multi-agent coordination without shared state
+- [absmartly/Tmux-Orchestrator](https://github.com/absmartly/Tmux-Orchestrator) — three-tier tmux hierarchy; study session spawn + heartbeat monitor
+- [raine/tmux-agent-usage](https://github.com/raine/tmux-agent-usage) — rate-limit signal detection from claude stderr
+- [awslabs/cli-agent-orchestrator](https://github.com/awslabs/cli-agent-orchestrator) — supervisor-worker pattern; reference for multi-agent coordination

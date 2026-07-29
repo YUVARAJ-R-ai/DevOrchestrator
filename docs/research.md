@@ -1,5 +1,8 @@
 # Project Research: DevOrchestrator
-_Generated: 2026-06-05_
+_Generated: 2026-06-05 · Vision-aligned: 2026-07-29_
+
+## Vision Alignment
+DevOrchestrator is the **first buildable slice of the [AI-Native Enterprise vision](vision.md)** — where every human role has a policy-aware AI companion and coordination happens through shared structured memory instead of tribal knowledge. This research scopes that vision to one role (the developer) and one workflow (task → deployed code), the domain with the fastest payoff. Two pillars of the full vision — a **governance/policy engine** and an **agent-connection protocol** — are deliberately **out of MVP scope** and tracked as Horizon H3 epics (see [Vision-Horizon Pillars](#vision-horizon-pillars-post-mvp) below and the [product backlog](product-backlog.md)).
 
 ## Problem & Goal
 Out of a 10-day sprint, ~60% is non-feature friction: boilerplate, PR setup, waiting on review, context switching. No existing tool automates the full SDLC loop end-to-end — from task selection to deployed code — while using only a Claude Code Pro subscription (no API key). DevOrchestrator absorbs that friction: the developer picks a task and reviews the result. The machine does everything else.
@@ -324,6 +327,23 @@ devorchestrator start
 ```
 
 Total new-member setup time: under 10 minutes. No documentation to read — the CLI guides each step.
+
+---
+
+## Vision-Horizon Pillars (post-MVP)
+
+These realize the parts of the [AI-Native Enterprise vision](vision.md) that carry the deepest moat but are **explicitly not MVP**. They become real work only after the H0–H1 wedge is proven, and are tracked as epics in the [product backlog](product-backlog.md).
+
+### H2 — Multi-role companions
+Extend the companion + escalation pattern beyond the developer: **Manager AI** (answers Developer-AI clarifications from project state before interrupting the human), **QA AI**, **DevOps AI**. Reuses the same artifact + mesh substrate; each role gets scoped read access and its own escalation hooks.
+
+### H3 — Governance / policy engine
+Least-privilege, read-only access to the org source-of-truth enforced by a central policy engine (e.g. Open Policy Agent). Out-of-scope access must be **requested → approved per policy → logged and audited**. This is what determines enterprise adoptability — a first-class pillar, not an afterthought. Needs: per-role policy templates, a request/approve flow, and an immutable audit trail.
+
+### H3 — Agent-connection protocol (the moat)
+A documented contract any compliant BYO agent implements to plug in: auth, scoped read of the source-of-truth, artifact I/O, mesh event emit/read, and escalation hooks. The company owns **the protocol and policies, not the model**. Incubated by the `claude`→`agy` adapter work in Sprint 4; formalized here into a stable, versioned interface.
+
+**Coordination stance (applies to all horizons):** agents coordinate through the **shared artifact + mesh + human gate**, never through unsupervised agent-to-agent contract negotiation. See [vision.md open questions](vision.md#open-questions).
 
 ---
 

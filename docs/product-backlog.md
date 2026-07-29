@@ -1,7 +1,7 @@
 # Product Backlog: DevOrchestrator
-_Generated: 2026-06-05 | Total: 36 items · 36 pts_
+_Generated: 2026-06-05 · Vision-aligned: 2026-07-29 | MVP: 36 items · 36 pts + Vision-Horizon epics_
 
-Ordered by delivery priority. Sprint column shows planned sprint. Items without a sprint are unscheduled backlog.
+Ordered by delivery priority. Sprint column shows planned sprint. Items without a sprint are unscheduled backlog. **Horizon** rows (H2/H3) realize the [AI-Native Enterprise vision](vision.md) and are deliberately **post-MVP** — they are not scheduled into the 4-sprint MVP and exist so the north star is never lost. See [horizon epics](#vision-horizon-epics-post-mvp) below.
 
 ---
 
@@ -76,3 +76,32 @@ Ordered by delivery priority. Sprint column shows planned sprint. Items without 
 - [ ] DeepSeek chatbot interface (conversational layer over mesh + board data)
 - [ ] Headless mode (no tmux, fully non-interactive for CI environments)
 - [ ] Codex invocation adapter
+
+---
+
+## Vision-Horizon Epics (post-MVP)
+
+These realize the [AI-Native Enterprise vision](vision.md). They are **not scheduled into the MVP** — each starts only after the H0–H1 wedge is proven. Sized coarsely (T-shirt) because they will be broken down when picked up. Coordination stays through the **shared artifact + mesh + human gate**, never unsupervised agent negotiation ([why](vision.md#open-questions)).
+
+### Horizon H2 — Multi-role companions
+Extend the companion + escalation pattern beyond the developer, reusing the artifact + mesh substrate.
+
+| # | Epic | Size | Notes |
+|---|------|------|-------|
+| H2-1 | **Manager AI** companion: answers Developer-AI clarifications from project state / priorities / prior decisions before interrupting the human; escalates with full context | XL | dep: mesh (#36–39) |
+| H2-2 | Developer-AI → Manager-AI escalation channel (structured, logged, context-preserving) | L | dep: H2-1 |
+| H2-3 | **QA AI** companion: consumes artifact + diff, proposes test coverage, flags acceptance-criteria gaps | L | dep: artifact schema (#13) |
+| H2-4 | **DevOps AI** companion: owns deploy/health/rollback signals, escalates infra decisions | L | dep: deploy (#32) |
+| H2-5 | Org-scale cost/rate-limit modeling (companion-for-everyone economics) | M | builds on rotation (#40–43) |
+
+### Horizon H3 — Enterprise platform
+The deepest-moat pillars: the company owns the **protocol and policies, not the model**.
+
+| # | Epic | Size | Notes |
+|---|------|------|-------|
+| H3-1 | **Governance / policy engine**: least-privilege read-only access to source-of-truth, enforced centrally (e.g. OPA) | XL | first-class adoption gate |
+| H3-2 | Access request → policy-based approval → **immutable audit trail** flow | L | dep: H3-1 |
+| H3-3 | Per-role policy templates (dev / TL / manager / QA / devops) | M | dep: H3-1 |
+| H3-4 | **Agent-connection protocol** spec: auth, scoped source-of-truth read, artifact I/O, mesh emit/read, escalation hooks | XL | the moat; incubated by #21 (`agy` adapter) |
+| H3-5 | Protocol conformance suite (any BYO agent can self-certify) | L | dep: H3-4 |
+| H3-6 | Organizational-memory trust layer: provenance, supersession/expiry, confidence, staleness detection | L | hardens mesh into durable org memory |

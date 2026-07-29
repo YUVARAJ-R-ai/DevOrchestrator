@@ -1,6 +1,8 @@
 # Sprint 2 — Quality Gates + PR Automation
 **Jun 15–19, 2026 · 9/10 pts · Solo dev (Claude Code)**
 
+> **Vision alignment ([H0](vision.md)):** implements the **escalation model**. `--autofix` is the `AI → AI` layer resolving routine check failures automatically; the TL approval gate is the `AI → Human` boundary, escalating only what needs a person — with the full artifact + diff as context, not fragmented messages.
+
 ---
 
 ## MVP Definition

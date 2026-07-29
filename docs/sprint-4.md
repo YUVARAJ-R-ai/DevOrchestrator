@@ -1,6 +1,8 @@
 # Sprint 4 — Scale, Resilience + Azure Track
 **Jun 29 – Jul 3, 2026 · 9/10 pts · Solo dev (Claude Code)**
 
+> **Vision alignment ([H1](vision.md)):** the agent adapter (`claude` → `agy`) is the seed of **Bring Your Own Agent** — the company provides the loop and governance, not the assistant. This adapter work incubates the H3 **agent-connection protocol** (the moat): the documented contract any compliant agent implements to plug in.
+
 ---
 
 ## MVP Definition

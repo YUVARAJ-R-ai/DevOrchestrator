@@ -1,6 +1,8 @@
 # Sprint 1 — Core AI Loop
 **Jun 8–12, 2026 · 10/10 pts · Solo dev (Claude Code)**
 
+> **Vision alignment ([H0](vision.md)):** builds the **developer's AI companion** — the research + implementation sessions that understand the task and do the operational work, while the human picks the task and reviews. This is "every role has a companion," scoped to the developer.
+
 ---
 
 ## MVP Definition

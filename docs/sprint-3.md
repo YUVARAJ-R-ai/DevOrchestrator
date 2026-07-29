@@ -1,6 +1,8 @@
 # Sprint 3 — Full Pipeline + Team Infrastructure
 **Jun 22–26, 2026 · 9/10 pts · Solo dev (Claude Code)**
 
+> **Vision alignment ([H1](vision.md)):** the mesh is **persistent organizational memory** and the trustworthy form of **AI-to-AI communication** — agents coordinate through shared, queryable facts (who-touches-what, logged decisions), not unsupervised chatter. The H3 org-memory trust layer (provenance, supersession, confidence) hardens this later; see [vision open questions](vision.md#open-questions).
+
 ---
 
 ## MVP Definition

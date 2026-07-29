@@ -176,21 +176,17 @@ Claude Code receives this artifact and works through it systematically. The dev 
 - [ ] Build Gitea API branch creation from task slug (M)
 - [ ] Build Azure Repos branch creation (v1.1) (M)
 
-### Research Sub-agent (Placeholder → Framework Later)
-- [ ] Write codebase scanner (find files relevant to task via keyword + imports) (M)
-- [ ] Write context.json schema (relevant_files, patterns, risks, notes) (S)
-- [ ] Design pluggable interface so research framework slots in later (S)
+### Research Session
+- [ ] Write research prompt template (task description → "read codebase, generate artifact.md") (M)
+- [ ] Write libtmux pane spawner for research session (named: research-[branch]) (M)
+- [ ] Write artifact.md file watcher (inotify/polling — detect when session writes the file) (S)
+- [ ] Write artifact renderer (Rich preview in terminal after research session exits) (S)
+- [ ] Design artifact.md schema (sub-tasks, files to touch, acceptance criteria, notes) (S)
 
-### Artifact Generator
-- [ ] Build DeepSeek V4 Flash client (AsyncOpenAI, OpenRouter base_url) (S)
-- [ ] Write artifact prompt template (task + context.json → artifact.md) (M) ← depends on: research sub-agent
-- [ ] Write artifact file writer (.orchestrator/[branch]/artifact.md) (S)
-- [ ] Write artifact renderer (Rich preview in terminal before spawning agent) (S)
-
-### tmux Agent Subprocess
-- [ ] Write libtmux session spawner (create named pane for each task) (M)
-- [ ] Write claude -p invocation with artifact path as prompt (M) ← depends on: artifact generator
-- [ ] Write pane monitor (detect when claude finishes, surface exit status) (S)
+### Implementation Session
+- [ ] Write implementation prompt template ("implement artifact at [path]") (S)
+- [ ] Write libtmux pane spawner for implementation session (named: impl-[branch]) (M) ← depends on: artifact watcher
+- [ ] Write pane monitor (detect when session exits, surface status) (S)
 - [ ] Write agy invocation adapter (v1.1) (M)
 
 ### Auto-checks
@@ -230,14 +226,15 @@ Claude Code receives this artifact and works through it systematically. The dev 
 ## Tech Recommendations
 
 ### Model Architecture
-Two tiers — the brain handles orchestration logic, Claude Code handles implementation:
+Two Claude Code sessions handle all AI work. DeepSeek is lightweight and optional:
 
-| Tier | Tool | Role | Cost |
-|------|------|------|------|
-| **Brain** | DeepSeek V4 Flash (OpenRouter) | Artifact generation, PR descriptions, routing decisions | $0.14/M tokens |
-| **Worker** | `claude` CLI (Code Pro subscription) | Actual code implementation in tmux pane | Flat Pro subscription |
+| Session | Tool | Role | Cost |
+|---------|------|------|------|
+| **Research** | `claude` CLI (Code Pro) | Reads codebase → generates artifact.md | Pro subscription |
+| **Implementation** | `claude` CLI (Code Pro) | Reads artifact → writes code | Pro subscription |
+| **PR description** | DeepSeek V4 Flash (OpenRouter) | `git log` → PR description text | $0.14/M tokens |
 
-Claude Code is invoked as a CLI subprocess — **no API key required**. The dev must be logged in via `claude auth login` with their Pro account. The orchestrator calls the same `claude` binary the dev already uses.
+Claude Code is invoked as a CLI subprocess — **no API key required**. The dev must be logged in via `claude auth login` with their Pro account. DeepSeek is used only for PR description generation; if you want zero external API dependencies, this step can also use a third Claude session instead.
 
 ```yaml
 # devOrchestrator.yaml — full config, nothing else needed
@@ -346,6 +343,7 @@ Total new-member setup time: under 10 minutes. No documentation to read — the 
 - [ ] **tmux visibility: mandatory or optional?** → Mandatory for MVP — the dev watching the pane is a feature, not overhead. Headless mode in v1.1
 - [ ] **Azure DevOps in MVP?** → No. OSS track only. Validate pipeline shape first
 - [ ] **agy in MVP?** → No. `claude` CLI only. Agent-agnostic routing in v1.1
+- [ ] **DeepSeek / external intelligence exact role** → Reserved as a general-purpose external AI layer. Current confirmed use: PR description generation. Future candidates: team chatbot, natural language mesh queries ("what did the team do this sprint?"), TL dashboard assistant, anything where a persistent conversational model fits better than a one-shot Claude session. Decide through experimentation — do not remove from the stack.
 
 ---
 

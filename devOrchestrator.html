@@ -86,11 +86,12 @@ section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
 .pipe-stage:hover .pipe-dot.azure{box-shadow:0 0 30px rgba(62,168,255,.15)}
 
 .pipe-content{flex:1;min-width:0}
-.pipe-content h4{font-size:1rem;font-weight:500;margin-bottom:.3rem;display:flex;align-items:center;gap:.6rem}
+.pipe-content h4{font-size:1rem;font-weight:500;margin-bottom:.3rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .pipe-content h4 .tool{font-family:var(--font-mono);font-size:.7rem;padding:.15rem .5rem;border-radius:4px;font-weight:400}
 .tool.oss{background:rgba(62,255,184,.08);color:var(--accent2)}
 .tool.azure{background:rgba(62,168,255,.08);color:var(--accent3)}
 .tool.agent{background:rgba(167,139,250,.08);color:var(--purple)}
+.tool.brain{background:rgba(200,255,62,.08);color:var(--accent)}
 .pipe-content p{font-size:.82rem;color:var(--text2);line-height:1.6}
 .pipe-content .auto-tag{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-top:.4rem;display:inline-block}
 .pipe-content .human-tag{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--purple);margin-top:.4rem;display:inline-block}
@@ -98,6 +99,16 @@ section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
 .two-tracks{display:grid;grid-template-columns:1fr 1fr;gap:3rem;position:relative}
 .two-tracks::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,var(--border),transparent)}
 @media(max-width:900px){.two-tracks{grid-template-columns:1fr;gap:4rem}.two-tracks::before{display:none}}
+
+.artifact-section{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:3rem;margin:4rem 0;position:relative;overflow:hidden}
+.artifact-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top left,rgba(200,255,62,.04),transparent 60%);pointer-events:none}
+.artifact-code{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-top:2rem;font-family:var(--font-mono);font-size:.75rem;line-height:1.9;color:var(--text2);overflow-x:auto;position:relative}
+.artifact-code::before{content:'artifact.md';position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase}
+.artifact-code .heading{color:var(--accent);font-weight:700}
+.artifact-code .check{color:var(--accent2)}
+.artifact-code .file{color:var(--accent3)}
+.artifact-code .note{color:var(--text3)}
+.artifact-code .warn{color:var(--warn)}
 
 .mesh-section{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:3rem;margin:4rem 0;position:relative;overflow:hidden}
 .mesh-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top right,rgba(167,139,250,.04),transparent 60%);pointer-events:none}
@@ -118,8 +129,21 @@ section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 .rot-arrow{color:var(--text3);font-size:1.2rem}
 
+.model-section{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:3rem;margin:4rem 0;position:relative;overflow:hidden}
+.model-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at bottom left,rgba(62,168,255,.03),transparent 60%);pointer-events:none}
+.model-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-top:2rem}
+.model-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;transition:border-color .3s}
+.model-card:hover{border-color:var(--accent2)}
+.model-card .model-role{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;margin-bottom:.6rem}
+.model-card .model-role.research{color:var(--purple)}
+.model-card .model-role.impl{color:var(--accent2)}
+.model-card .model-role.brain{color:var(--accent)}
+.model-card h4{font-size:1rem;margin-bottom:.3rem}
+.model-card p{font-size:.78rem;color:var(--text2);line-height:1.5}
+.model-card .model-cost{font-family:var(--font-mono);font-size:.65rem;color:var(--text3);margin-top:.5rem}
+
 .config-block{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2rem;margin-top:2rem;font-family:var(--font-mono);font-size:.78rem;line-height:2;color:var(--text2);overflow-x:auto;position:relative}
-.config-block::before{content:'orchestrator.yaml';position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase}
+.config-block::before{content:'devOrchestrator.yaml';position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase}
 .config-block .key{color:var(--accent2)}
 .config-block .key.az{color:var(--accent3)}
 .config-block .val{color:var(--text)}
@@ -132,7 +156,6 @@ section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
 .time-bar-fill{height:100%;border-radius:7px;display:flex;align-items:center;padding-left:12px;font-family:var(--font-mono);font-size:.65rem;font-weight:700;transition:width 1.5s ease}
 .time-bar-fill.human{background:linear-gradient(90deg,rgba(167,139,250,.25),rgba(167,139,250,.1))}
 .time-bar-fill.ai{background:linear-gradient(90deg,rgba(200,255,62,.2),rgba(62,255,184,.1))}
-.time-bar-fill.saved{background:repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(200,255,62,.03) 4px,rgba(200,255,62,.03) 8px)}
 
 .build-order{counter-reset:bo;margin-top:2rem}
 .build-step{display:flex;gap:1.5rem;padding:1.2rem 0;border-bottom:1px solid var(--border);counter-increment:bo}
@@ -142,6 +165,13 @@ section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
 .build-step p{font-size:.8rem;color:var(--text2);line-height:1.5}
 .build-step .timeline{font-family:var(--font-mono);font-size:.7rem;color:var(--accent2);margin-top:.3rem}
 
+.stack-table{width:100%;border-collapse:collapse;margin-top:2rem;font-size:.82rem}
+.stack-table th{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;color:var(--text3);padding:.75rem 1rem;text-align:left;border-bottom:1px solid var(--border)}
+.stack-table td{padding:.75rem 1rem;border-bottom:1px solid rgba(34,34,40,.5);color:var(--text2);vertical-align:top}
+.stack-table td:first-child{color:var(--text);font-weight:500;white-space:nowrap}
+.stack-table td .chip{font-family:var(--font-mono);font-size:.65rem;padding:.2rem .5rem;border-radius:4px;display:inline-block}
+.stack-table tr:hover td{background:rgba(255,255,255,.01)}
+
 footer{text-align:center;padding:4rem 2rem;color:var(--text3);font-size:.75rem}
 footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);margin-bottom:.5rem}
 </style>
@@ -150,13 +180,13 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
 <div class="grain"></div>
 
 <header class="hero">
-  <div class="hero-badge">SDLC automation methodology</div>
+  <div class="hero-badge">SDLC automation orchestrator</div>
   <h1>Dev<em>Orchestrator</em></h1>
-  <p class="hero-sub">An AI-augmented SDLC orchestrator. Pick a task — the machine researches it, generates the artifact, deploys Claude Code to implement it, then ships it. Human owns the thinking. Machine owns the plumbing.</p>
+  <p class="hero-sub">Pick a task. The machine researches it, plans it, implements it, ships it. Two human moments — choose the task, review the result. Everything else is automated.</p>
   <div class="hero-metrics">
     <div class="hero-metric"><div class="val">2&times;</div><div class="label">Sprint velocity</div></div>
-    <div class="hero-metric"><div class="val">4</div><div class="label">Dev team</div></div>
-    <div class="hero-metric"><div class="val">1</div><div class="label">Human gate</div></div>
+    <div class="hero-metric"><div class="val">2</div><div class="label">Human gates</div></div>
+    <div class="hero-metric"><div class="val">4</div><div class="label">Weeks to ship</div></div>
   </div>
   <div class="scroll-hint">
     <span>Scroll to explore</span>
@@ -164,37 +194,39 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
   </div>
 </header>
 
+<!-- PHILOSOPHY -->
 <section>
   <div class="reveal">
     <div class="section-tag">Core philosophy</div>
     <div class="section-title">Human owns the thinking.<br>Orchestrator owns the plumbing.</div>
-    <p class="section-desc">Out of a 10-day sprint, only ~4 days is actual feature work. The other 6 is friction — branch setup, PR mechanics, waiting on review, context switching. The orchestrator absorbs that friction.</p>
+    <p class="section-desc">60% of a sprint is friction — branch setup, PR mechanics, research, context switching. DevOrchestrator absorbs that friction through two sequential AI sessions coordinated by a lightweight Python CLI.</p>
   </div>
 
   <div class="philosophy">
     <div class="philosophy-card reveal reveal-delay-1">
       <div class="num">01</div>
-      <h3>Shared context mesh</h3>
-      <p>Every dev's AI co-pilot reads and writes to a shared memory bus. The team thinks as one brain — conflicts caught before they happen, not after a merge war.</p>
+      <h3>Artifact-driven</h3>
+      <p>A Claude Code research session reads your actual codebase and produces a structured artifact — sub-tasks, files to touch, acceptance criteria. The artifact is the handoff between AI sessions and the record of what was planned.</p>
     </div>
     <div class="philosophy-card reveal reveal-delay-2">
       <div class="num">02</div>
-      <h3>Plug and play</h3>
-      <p>One YAML config file per team member. Point at the shared infra, pick your agent (claude / agy / codex), go. Zero onboarding friction.</p>
+      <h3>Two-session AI</h3>
+      <p>Session one researches and plans. Session two implements. Both run in tmux panes you can watch live — no black box. Claude Code Pro subscription only, no API key required.</p>
     </div>
     <div class="philosophy-card reveal reveal-delay-3">
       <div class="num">03</div>
-      <h3>Human-in-the-loop</h3>
-      <p>The TL approval gate is the only manual checkpoint. Everything before and after is automated. Creative decisions stay with humans — always.</p>
+      <h3>Two human gates</h3>
+      <p>Pick your task. Review the implementation. That's it. Branch creation, artifact generation, coding, checks, PR, TL approval, deploy, and task close are all automated between those two moments.</p>
     </div>
   </div>
 </section>
 
+<!-- PIPELINE -->
 <section>
   <div class="reveal">
     <div class="section-tag">The pipeline — two tracks</div>
     <div class="section-title">Same orchestrator.<br>Different infrastructure.</div>
-    <p class="section-desc">The orchestrator is agent-agnostic and infra-agnostic. The same 7-stage pipeline runs on fully open source tools or on Azure DevOps — just swap the config.</p>
+    <p class="section-desc">The same 7-stage pipeline runs on a fully self-hosted OSS stack or on Azure DevOps. Swap the config, keep the workflow.</p>
   </div>
 
   <div class="two-tracks">
@@ -208,55 +240,55 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
           <div class="pipe-dot oss">01</div>
           <div class="pipe-content">
             <h4>Task fetch <span class="tool oss">Plane</span></h4>
-            <p>Poll the Plane sprint board via REST API. Fetch stories assigned to this dev. Surface them in the terminal.</p>
-            <span class="auto-tag">automated</span>
+            <p>Poll the Plane sprint board via REST API. Fetch stories assigned to this dev. Rich terminal selector — arrow key, pick, go.</p>
+            <span class="human-tag">human selects</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">02</div>
           <div class="pipe-content">
-            <h4>Branch + scaffold <span class="tool oss">Gitea</span> <span class="tool agent">claude -p</span></h4>
-            <p>Create feature branch via Gitea API. Dev agent (claude or agy subprocess) scaffolds boilerplate. Developer writes the actual logic.</p>
-            <span class="human-tag">human creates</span>
+            <h4>Branch creation <span class="tool oss">Gitea</span></h4>
+            <p>Orchestrator calls Gitea API, creates <code>feature/{task-slug}</code>, checks it out locally. Zero manual steps.</p>
+            <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">03</div>
           <div class="pipe-content">
-            <h4>Auto-checks <span class="tool agent">agy -p</span></h4>
-            <p>On every push: lint, secrets scan (no .env leaks), unit tests. Agent can attempt autofix on failure with --autofix flag.</p>
+            <h4>Research session <span class="tool agent">claude -p</span> <span class="tool agent">tmux pane 1</span></h4>
+            <p>Claude Code opens your codebase with its file and bash tools, understands existing patterns and risks, then writes <code>artifact.md</code> — sub-tasks, files to touch, acceptance criteria.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">04</div>
           <div class="pipe-content">
-            <h4>PR raised <span class="tool oss">Gitea API</span></h4>
-            <p>Once checks pass, orchestrator opens a PR — description auto-generated from commit history, linked to the Plane task card.</p>
-            <span class="auto-tag">automated</span>
+            <h4>Implementation session <span class="tool agent">claude -p</span> <span class="tool agent">tmux pane 2</span></h4>
+            <p>Second Claude Code session reads the artifact and implements every sub-task. Dev watches the pane live and can intervene at any point.</p>
+            <span class="human-tag">human reviews</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">05</div>
           <div class="pipe-content">
-            <h4>TL approval <span class="tool agent">review agent</span></h4>
-            <p>TL's orchestrator surfaces: clean diff, test results, CI status, task context. One keypress to approve.</p>
-            <span class="human-tag">human decides</span>
+            <h4>Auto-checks <span class="tool oss">ruff</span> <span class="tool oss">gitleaks</span> <span class="tool oss">pytest</span></h4>
+            <p>Lint, secrets scan, and tests run automatically. On failure, orchestrator re-invokes the impl session with the failure context and the original artifact.</p>
+            <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">06</div>
           <div class="pipe-content">
-            <h4>CI/CD pipeline <span class="tool oss">Woodpecker CI</span></h4>
-            <p>YAML-driven pipelines, Gitea-native. Self-hosted runners. Build, test, lint, security scan — all defined in the repo.</p>
+            <h4>PR + TL gate <span class="tool brain">DeepSeek</span> <span class="tool oss">Gitea API</span></h4>
+            <p>DeepSeek V4 Flash writes the PR description from git log + artifact. Gitea API opens the PR. TL gets a terminal view: diff + test results + artifact. One keypress to merge.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot oss">07</div>
           <div class="pipe-content">
-            <h4>Deploy + notify <span class="tool oss">Coolify</span> <span class="tool oss">Mattermost</span></h4>
-            <p>Deploy webhook fires to Coolify (open source Heroku). Health check. Task closed on Plane. Team notified via Mattermost.</p>
+            <h4>Deploy + notify <span class="tool oss">Woodpecker CI</span> <span class="tool oss">Coolify</span> <span class="tool oss">Mattermost</span></h4>
+            <p>CI pipeline runs. Coolify deploys on success. Health check passes. Plane task closes. Team notified on Mattermost.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
@@ -273,55 +305,55 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
           <div class="pipe-dot azure">01</div>
           <div class="pipe-content">
             <h4>Task fetch <span class="tool azure">Azure Boards</span></h4>
-            <p>Query work items via Azure DevOps REST API. Filter by assigned-to, sprint iteration, and state. Surface in terminal.</p>
-            <span class="auto-tag">automated</span>
+            <p>Query work items via Azure DevOps REST API. Filter by assignee, sprint iteration, and state. Same terminal selector experience.</p>
+            <span class="human-tag">human selects</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">02</div>
           <div class="pipe-content">
-            <h4>Branch + scaffold <span class="tool azure">Azure Repos</span> <span class="tool agent">claude -p</span></h4>
-            <p>Create feature branch via Azure Repos API. Claude or agy subprocess generates boilerplate. Dev writes real logic.</p>
-            <span class="human-tag">human creates</span>
+            <h4>Branch creation <span class="tool azure">Azure Repos</span></h4>
+            <p>Create feature branch via Azure Repos API. Same naming convention. Same local checkout.</p>
+            <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">03</div>
           <div class="pipe-content">
-            <h4>Auto-checks <span class="tool agent">agy -p</span></h4>
-            <p>Same agent-powered checks: lint, secrets scan, unit tests. Identical subprocess calls — only the git remote differs.</p>
+            <h4>Research session <span class="tool agent">claude -p</span> <span class="tool agent">tmux pane 1</span></h4>
+            <p>Identical to OSS track. Claude Code reads codebase, generates artifact.md. The AI sessions are infrastructure-agnostic.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">04</div>
           <div class="pipe-content">
-            <h4>PR raised <span class="tool azure">Azure Repos API</span></h4>
-            <p>Pull request opened via API — auto-linked to the Azure Board work item, description generated, reviewers assigned by policy.</p>
-            <span class="auto-tag">automated</span>
+            <h4>Implementation session <span class="tool agent">claude -p</span> <span class="tool agent">tmux pane 2</span></h4>
+            <p>Identical to OSS track. Same artifact, same prompt, same tmux pane. Only the git remote differs.</p>
+            <span class="human-tag">human reviews</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">05</div>
           <div class="pipe-content">
-            <h4>TL approval <span class="tool agent">review agent</span></h4>
-            <p>Same TL experience — diff, test results, task context in one view. Azure has branch policies; approval maps to the required reviewer gate.</p>
-            <span class="human-tag">human decides</span>
+            <h4>Auto-checks <span class="tool agent">ruff</span> <span class="tool agent">gitleaks</span> <span class="tool agent">pytest</span></h4>
+            <p>Same agent-powered checks — lint, secrets scan, tests. Identical subprocess calls. Only the git remote differs.</p>
+            <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">06</div>
           <div class="pipe-content">
-            <h4>CI/CD pipeline <span class="tool azure">Azure Pipelines</span></h4>
-            <p>YAML pipelines in azure-pipelines.yml. Microsoft-hosted or self-hosted agents. Built-in caching, parallel jobs, environments.</p>
+            <h4>PR + TL gate <span class="tool brain">DeepSeek</span> <span class="tool azure">Azure Repos API</span></h4>
+            <p>Same AI-written PR description. Pull request opened via Azure Repos API, auto-linked to Azure Board work item. TL approval maps to the required reviewer gate.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
         <div class="pipe-stage">
           <div class="pipe-dot azure">07</div>
           <div class="pipe-content">
-            <h4>Deploy + notify <span class="tool azure">App Service</span> <span class="tool azure">Teams</span></h4>
-            <p>Deploy to Azure App Service / AKS via release pipeline. Health check. Work item moved to Done. Teams webhook notification.</p>
+            <h4>Deploy + notify <span class="tool azure">Azure Pipelines</span> <span class="tool azure">App Service</span> <span class="tool azure">Teams</span></h4>
+            <p>Azure Pipelines builds and deploys to App Service or AKS. Work item moved to Done. Teams webhook notification fires.</p>
             <span class="auto-tag">automated</span>
           </div>
         </div>
@@ -330,39 +362,100 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
   </div>
 </section>
 
+<!-- ARTIFACT -->
+<section>
+  <div class="artifact-section reveal">
+    <div class="section-tag">The handoff document</div>
+    <div class="section-title">The artifact</div>
+    <p class="section-desc" style="margin-bottom:0">The research session writes it. The implementation session reads it. The TL reviews it alongside the diff. It's the plan, the spec, and the audit trail — one markdown file.</p>
+    <div class="artifact-code">
+      <span class="heading"># Artifact: Implement JWT Authentication</span><br>
+      <span class="note">_Task: PROJ-42 | Branch: feature/jwt-auth | Generated: 2026-06-10_</span><br><br>
+      <span class="heading">## Context</span> <span class="note">(from research session)</span><br>
+      <span class="note">- Existing pattern: src/middleware/auth.py uses session-based approach</span><br>
+      <span class="note">- JWT library already installed: python-jose==3.3.0</span><br>
+      <span class="warn">- Risk: session store is not thread-safe — switching to stateless JWT resolves this</span><br><br>
+      <span class="heading">## Sub-tasks</span><br>
+      <span class="check">- [ ] Create User model with email + hashed password</span><br>
+      <span class="check">- [ ] Implement JWT generation helper (use existing python-jose)</span><br>
+      <span class="check">- [ ] Add POST /auth/login endpoint</span><br>
+      <span class="check">- [ ] Write auth middleware for protected routes</span><br>
+      <span class="check">- [ ] Write unit tests for all endpoints</span><br><br>
+      <span class="heading">## Files to Create / Modify</span><br>
+      <span class="file">- src/models/user.py</span> <span class="note">— add User model</span><br>
+      <span class="file">- src/routes/auth.py</span> <span class="note">— new: login + register</span><br>
+      <span class="file">- src/middleware/jwt.py</span> <span class="note">— new: token validation</span><br>
+      <span class="file">- tests/test_auth.py</span> <span class="note">— new: endpoint tests</span>
+    </div>
+  </div>
+</section>
+
+<!-- MODEL ARCHITECTURE -->
+<section>
+  <div class="reveal">
+    <div class="section-tag">Model architecture</div>
+    <div class="section-title">Three roles.<br>No API key required.</div>
+    <p class="section-desc">Claude Code Pro subscription powers both AI sessions. DeepSeek V4 Flash handles PR descriptions and future intelligence features. No Claude API key — just the CLI you already have.</p>
+  </div>
+
+  <div class="model-section reveal">
+    <div class="model-grid">
+      <div class="model-card">
+        <div class="model-role research">Research session</div>
+        <h4>Claude Code CLI</h4>
+        <p>Reads your codebase with file + bash tools. Understands patterns. Writes the artifact. Runs in tmux pane 1.</p>
+        <div class="model-cost">Pro subscription · no API key · claude -p</div>
+      </div>
+      <div class="model-card">
+        <div class="model-role impl">Implementation session</div>
+        <h4>Claude Code CLI</h4>
+        <p>Reads the artifact. Implements every sub-task. Checks them off as it goes. Runs in tmux pane 2.</p>
+        <div class="model-cost">Pro subscription · no API key · claude -p</div>
+      </div>
+      <div class="model-card">
+        <div class="model-role brain">External intelligence</div>
+        <h4>DeepSeek V4 Flash</h4>
+        <p>PR description generation from git log + artifact. Reserved for chatbot, mesh queries, and future intelligence features.</p>
+        <div class="model-cost">$0.14 / M tokens · OpenRouter · MIT licensed</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHARED CONTEXT MESH -->
 <section>
   <div class="mesh-section reveal">
     <div class="section-tag">Layer 2 — the novel part</div>
     <div class="section-title">Shared context mesh</div>
-    <p class="section-desc">The thing that doesn't exist in any tool yet. Every co-pilot reads and writes a shared memory bus — SQLite + JSON on the shared server — so the team thinks as one brain.</p>
+    <p class="section-desc">SQLite + JSON on the shared server, ~50 lines of Python. Every dev's orchestrator reads and writes to it — so the team thinks as one brain and merge collisions are caught before they happen.</p>
     <div class="mesh-grid">
       <div class="mesh-card">
         <div class="icon">&#9998;</div>
         <h4>Writes on task start</h4>
-        <p>Logs which modules you're touching, which task, your branch. Other co-pilots see it instantly.</p>
+        <p>Logs which modules you're touching, which task, your branch. Other orchestrators see it instantly.</p>
       </div>
       <div class="mesh-card">
         <div class="icon">&#9737;</div>
         <h4>Writes on decisions</h4>
-        <p>"Switching JWT to session-based" — logged automatically. Every co-pilot queries this before acting.</p>
+        <p>"Switching JWT to session-based" — logged with <code>devorchestrator decision</code>. Every co-pilot queries this before acting.</p>
       </div>
       <div class="mesh-card">
         <div class="icon">&#9888;</div>
         <h4>Conflict detection</h4>
-        <p>Dev 2 touches a module Dev 1 is refactoring? Warning surfaced. Not a block — a nudge. Humans decide.</p>
+        <p>Dev 2 touches a module Dev 1 is refactoring? Warning surfaced before a single line is written. Not a block — a nudge.</p>
       </div>
       <div class="mesh-card">
         <div class="icon">&#8635;</div>
-        <h4>Reads before acting</h4>
-        <p>"Has anyone touched auth/ this sprint?" — answered before the first line of code. Collision avoided.</p>
+        <h4>Team visibility</h4>
+        <p><code>devorchestrator mesh</code> shows a live table: who is on what task, what modules are active, recent decisions.</p>
       </div>
     </div>
   </div>
 
   <div class="rotation-section reveal">
-    <div class="section-tag">Layer 4 — rate limit bypass</div>
+    <div class="section-tag">Layer 3 — rate limit bypass</div>
     <div class="section-title">Account rotation with tmux</div>
-    <p class="section-desc" style="margin-bottom:0">Each tmux pane = one authenticated session. When Account A hits a rate limit, the orchestrator routes to Account B. No crash, no lost work.</p>
+    <p class="section-desc" style="margin-bottom:0">Each tmux pane is one authenticated session. When Account A hits a rate limit, the orchestrator detects it in stderr and silently routes to Account B. No crash, no lost work, no manual intervention.</p>
     <div class="rotation-flow">
       <div class="rot-node">
         claude-pro-1
@@ -375,48 +468,80 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
       </div>
       <div class="rot-arrow">&rarr;</div>
       <div class="rot-node">
-        agy-google-ai
+        agy-backup
         <div class="status active"></div>
       </div>
       <div class="rot-arrow">&rarr;</div>
       <div class="rot-node">
-        agy-backup
+        claude-pro-3
         <div class="status active"></div>
       </div>
     </div>
   </div>
 </section>
 
+<!-- CONFIG -->
 <section>
   <div class="reveal">
-    <div class="section-tag">The config — plug and play</div>
-    <div class="section-title">One file. Any track.</div>
-    <p class="section-desc">New team member setup is one YAML file. Swap the URLs to switch between open source and Azure DevOps.</p>
+    <div class="section-tag">Setup — plug and play</div>
+    <div class="section-title">One file. Any track.<br>Under 10 minutes.</div>
+    <p class="section-desc">Team lead commits the template once. New dev fills in 3 personal lines, sets 4 env vars, runs <code>devorchestrator init</code>. Done.</p>
   </div>
 
   <div class="two-tracks" style="gap:2rem">
     <div class="config-block reveal">
-      <span class="key">board_url</span>: <span class="val">https://plane.team.com</span><br>
-      <span class="key">git_url</span>: <span class="val">https://gitea.team.com</span><br>
-      <span class="key">ci_url</span>: <span class="val">https://woodpecker.team.com</span><br>
-      <span class="key">deploy_url</span>: <span class="val">https://coolify.team.com</span><br>
-      <span class="key">notify_url</span>: <span class="val">https://mattermost.team.com/hook</span><br>
+      <span class="key">name</span>: <span class="val">yuvaraj</span><br>
+      <span class="key">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span><br>
       <span class="key">agent</span>: <span class="val">claude</span> <span class="comment"># or: agy</span><br>
-      <span class="key">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span>
+      <br>
+      <span class="key">board</span>:<br>
+      &nbsp;&nbsp;<span class="key">type</span>: <span class="val">plane</span><br>
+      &nbsp;&nbsp;<span class="key">url</span>: <span class="val">https://plane.team.internal</span><br>
+      &nbsp;&nbsp;<span class="key">token_env</span>: <span class="val">PLANE_API_KEY</span><br>
+      <br>
+      <span class="key">git</span>:<br>
+      &nbsp;&nbsp;<span class="key">type</span>: <span class="val">gitea</span><br>
+      &nbsp;&nbsp;<span class="key">url</span>: <span class="val">https://gitea.team.internal</span><br>
+      &nbsp;&nbsp;<span class="key">token_env</span>: <span class="val">GITEA_TOKEN</span><br>
+      <br>
+      <span class="key">brain</span>:<br>
+      &nbsp;&nbsp;<span class="key">provider</span>: <span class="val">openrouter</span><br>
+      &nbsp;&nbsp;<span class="key">model</span>: <span class="val">deepseek/deepseek-v4-flash</span><br>
+      &nbsp;&nbsp;<span class="key">token_env</span>: <span class="val">OPENROUTER_API_KEY</span><br>
+      <br>
+      <span class="key">notify</span>:<br>
+      &nbsp;&nbsp;<span class="key">type</span>: <span class="val">mattermost</span><br>
+      &nbsp;&nbsp;<span class="key">webhook_env</span>: <span class="val">MATTERMOST_WEBHOOK</span>
     </div>
     <div class="config-block reveal reveal-delay-2" style="margin-top:0">
-      <span style="position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase">orchestrator.yaml (azure)</span>
-      <span class="key az">board_url</span>: <span class="val">https://dev.azure.com/org/proj</span><br>
-      <span class="key az">git_url</span>: <span class="val">https://dev.azure.com/org/proj/_git</span><br>
-      <span class="key az">ci_url</span>: <span class="val">https://dev.azure.com/org/proj/_build</span><br>
-      <span class="key az">deploy_url</span>: <span class="val">https://portal.azure.com/app-svc</span><br>
-      <span class="key az">notify_url</span>: <span class="val">https://teams.webhook.com/hook</span><br>
+      <span style="position:absolute;top:.7rem;right:1rem;font-size:.6rem;color:var(--text3);letter-spacing:.1em;text-transform:uppercase">devOrchestrator.yaml (azure)</span>
+      <span class="key az">name</span>: <span class="val">yuvaraj</span><br>
+      <span class="key az">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span><br>
       <span class="key az">agent</span>: <span class="val">claude</span> <span class="comment"># or: agy</span><br>
-      <span class="key az">role</span>: <span class="val">dev</span> <span class="comment"># or: tl</span>
+      <br>
+      <span class="key az">board</span>:<br>
+      &nbsp;&nbsp;<span class="key az">type</span>: <span class="val">azure_boards</span><br>
+      &nbsp;&nbsp;<span class="key az">url</span>: <span class="val">https://dev.azure.com/org/proj</span><br>
+      &nbsp;&nbsp;<span class="key az">token_env</span>: <span class="val">AZURE_DEVOPS_TOKEN</span><br>
+      <br>
+      <span class="key az">git</span>:<br>
+      &nbsp;&nbsp;<span class="key az">type</span>: <span class="val">azure_repos</span><br>
+      &nbsp;&nbsp;<span class="key az">url</span>: <span class="val">https://dev.azure.com/org/proj/_git</span><br>
+      &nbsp;&nbsp;<span class="key az">token_env</span>: <span class="val">AZURE_DEVOPS_TOKEN</span><br>
+      <br>
+      <span class="key az">brain</span>:<br>
+      &nbsp;&nbsp;<span class="key az">provider</span>: <span class="val">openrouter</span><br>
+      &nbsp;&nbsp;<span class="key az">model</span>: <span class="val">deepseek/deepseek-v4-flash</span><br>
+      &nbsp;&nbsp;<span class="key az">token_env</span>: <span class="val">OPENROUTER_API_KEY</span><br>
+      <br>
+      <span class="key az">notify</span>:<br>
+      &nbsp;&nbsp;<span class="key az">type</span>: <span class="val">teams</span><br>
+      &nbsp;&nbsp;<span class="key az">webhook_env</span>: <span class="val">TEAMS_WEBHOOK</span>
     </div>
   </div>
 </section>
 
+<!-- TIME MATH -->
 <section class="time-section">
   <div class="reveal">
     <div class="section-tag">The math</div>
@@ -426,63 +551,91 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
     <div class="time-bar-label"><span>Boilerplate &amp; setup</span><span>15%</span></div>
     <div class="time-bar"><div class="time-bar-fill ai" data-width="15" style="width:0%"><span style="color:var(--accent)">AI absorbs</span></div></div>
 
+    <div class="time-bar-label"><span>Research &amp; task planning</span><span>15%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="15" style="width:0%"><span style="color:var(--accent)">AI absorbs</span></div></div>
+
     <div class="time-bar-label"><span>PR mechanics &amp; CI</span><span>10%</span></div>
     <div class="time-bar"><div class="time-bar-fill ai" data-width="10" style="width:0%"><span style="color:var(--accent)">AI absorbs</span></div></div>
 
-    <div class="time-bar-label"><span>Waiting on review</span><span>20%</span></div>
-    <div class="time-bar"><div class="time-bar-fill ai" data-width="15" style="width:0%"><span style="color:var(--accent)">AI — 15%</span></div></div>
+    <div class="time-bar-label"><span>Waiting on review</span><span>15%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="12" style="width:0%"><span style="color:var(--accent)">AI — 12%</span></div></div>
 
-    <div class="time-bar-label"><span>Context switching</span><span>15%</span></div>
-    <div class="time-bar"><div class="time-bar-fill ai" data-width="10" style="width:0%"><span style="color:var(--accent)">AI — 10%</span></div></div>
+    <div class="time-bar-label"><span>Context switching</span><span>10%</span></div>
+    <div class="time-bar"><div class="time-bar-fill ai" data-width="8" style="width:0%"><span style="color:var(--accent)">AI — 8%</span></div></div>
 
-    <div class="time-bar-label"><span>Ceremonies</span><span>10%</span></div>
-    <div class="time-bar"><div class="time-bar-fill human" data-width="10" style="width:0%"><span style="color:var(--purple)">Human keeps</span></div></div>
+    <div class="time-bar-label"><span>Ceremonies</span><span>5%</span></div>
+    <div class="time-bar"><div class="time-bar-fill human" data-width="5" style="width:0%"><span style="color:var(--purple)">Human keeps</span></div></div>
 
-    <div class="time-bar-label"><span>Actual feature work</span><span>35%</span></div>
-    <div class="time-bar"><div class="time-bar-fill human" data-width="35" style="width:0%"><span style="color:var(--purple)">Human keeps — this is the real work</span></div></div>
+    <div class="time-bar-label"><span>Actual feature work</span><span>30%</span></div>
+    <div class="time-bar"><div class="time-bar-fill human" data-width="30" style="width:0%"><span style="color:var(--purple)">Human keeps — this is the real work</span></div></div>
   </div>
 </section>
 
+<!-- TECH STACK -->
 <section>
   <div class="reveal">
-    <div class="section-tag">Execution plan</div>
-    <div class="section-title">Build order</div>
-    <p class="section-desc">Start small. Get the innermost loop working first, then expand outward.</p>
+    <div class="section-tag">Tech stack</div>
+    <div class="section-title">Every layer, explained.</div>
+  </div>
+  <table class="stack-table reveal reveal-delay-1">
+    <thead>
+      <tr>
+        <th>Layer</th>
+        <th>Choice</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Language</td><td>Python 3.12</td><td>asyncio for concurrent API calls; subprocess for agent invocation; rich ecosystem for CLI tooling</td></tr>
+      <tr><td>Config</td><td>Pydantic v2 + PyYAML</td><td>Type-safe schema; catches bad config at startup with clear fix hints, not mid-run</td></tr>
+      <tr><td>Research &amp; impl agent</td><td><code>claude -p</code> (Pro subscription)</td><td>No API key; uses logged-in session; has file + bash tools for codebase research</td></tr>
+      <tr><td>External intelligence</td><td>DeepSeek V4 Flash (OpenRouter)</td><td>284B/13B active MoE; 83.6 tok/s; $0.14/M input; MIT licensed; PR descriptions + future chatbot</td></tr>
+      <tr><td>LLM client</td><td>openai SDK (AsyncOpenAI)</td><td>OpenRouter is OpenAI-compatible; swap provider by changing base_url only</td></tr>
+      <tr><td>Session manager</td><td>libtmux</td><td>Python bindings for tmux; spawn + monitor agent panes; battle-tested</td></tr>
+      <tr><td>HTTP client</td><td>httpx (async)</td><td>Single client for all REST APIs: Plane, Gitea, Coolify, Mattermost, Azure DevOps</td></tr>
+      <tr><td>Mesh DB</td><td>SQLite (stdlib, WAL mode)</td><td>Zero extra infra; one file on shared server; WAL handles 4-dev concurrent writes cleanly</td></tr>
+      <tr><td>Terminal UI</td><td>Rich</td><td>Task selector tables, artifact preview, TL approval view — no heavy framework</td></tr>
+      <tr><td>Secrets scanner</td><td>gitleaks (subprocess)</td><td>Industry standard; zero Python deps; runs as one subprocess call</td></tr>
+      <tr><td>Packaging</td><td>uv + pyproject.toml</td><td>Single entry point: <code>uvx devorchestrator start</code>; fast installs; reproducible envs</td></tr>
+      <tr><td>Shared infra</td><td>Docker Compose on Debian / Tailscale</td><td>One <code>docker compose up -d</code> for full OSS stack; Tailscale for remote team access</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- BUILD ORDER -->
+<section>
+  <div class="reveal">
+    <div class="section-tag">Build order — 4 sprints</div>
+    <div class="section-title">Ship something real<br>every Friday.</div>
+    <p class="section-desc">Each sprint ends with a working, demonstrable MVP. Built with Claude Code.</p>
   </div>
   <div class="build-order reveal">
     <div class="build-step">
       <div>
-        <h4>Per-dev co-pilot loop</h4>
-        <p>Just you, one task, claude -p as subprocess, auto-checks, auto-PR. Get the inner loop working on your machine.</p>
-        <div class="timeline">Day 1-2</div>
+        <h4>Core AI Loop</h4>
+        <p>Config loader, Plane task fetch, Gitea branch creation, research session (tmux pane 1 → artifact.md), implementation session (tmux pane 2). Dev can pick a task and watch Claude Code research and implement it.</p>
+        <div class="timeline">Sprint 1 · Jun 8–12 · 10 pts</div>
       </div>
     </div>
     <div class="build-step">
       <div>
-        <h4>Shared infra stack</h4>
-        <p>Docker Compose: Plane + Gitea + Woodpecker + Coolify (or connect to Azure DevOps). Run it on your homelab Debian server via Tailscale.</p>
-        <div class="timeline">Day 3-4</div>
+        <h4>Quality Gates + PR Automation</h4>
+        <p>Auto-checks (ruff + gitleaks + pytest), --autofix flag, DeepSeek PR description generator, Gitea PR creation, Rich TL approval view with one-keypress merge.</p>
+        <div class="timeline">Sprint 2 · Jun 15–19 · 9 pts</div>
       </div>
     </div>
     <div class="build-step">
       <div>
-        <h4>Shared context mesh</h4>
-        <p>SQLite + JSON on the shared server. ~50 lines of Python. Each co-pilot writes events, queries before acting.</p>
-        <div class="timeline">Day 5</div>
+        <h4>Full Pipeline + Team Infrastructure</h4>
+        <p>Coolify deploy + health check, task close + Mattermost notify, Docker Compose OSS stack, <code>devorchestrator init</code> onboarding command, shared context mesh (SQLite, conflict detection).</p>
+        <div class="timeline">Sprint 3 · Jun 22–26 · 9 pts</div>
       </div>
     </div>
     <div class="build-step">
       <div>
-        <h4>Account rotation</h4>
-        <p>Tmux session pool router. Rate limit detection, automatic account switching. Add when you actually hit limits.</p>
-        <div class="timeline">Day 6</div>
-      </div>
-    </div>
-    <div class="build-step">
-      <div>
-        <h4>Team rollout</h4>
-        <p>Give each dev the orchestrator binary + their yaml config. They plug in, they're live. No training needed — the orchestrator watches, not commands.</p>
-        <div class="timeline">Week 2</div>
+        <h4>Scale + Azure DevOps Track</h4>
+        <p>Account rotation (tmux session pool, rate-limit detection, round-robin router), agy agent adapter, full Azure DevOps track (Boards + Repos + Pipelines + App Service + Teams).</p>
+        <div class="timeline">Sprint 4 · Jun 29–Jul 3 · 9 pts</div>
       </div>
     </div>
   </div>
@@ -490,7 +643,7 @@ footer .name{font-family:var(--font-display);font-size:1.5rem;color:var(--text);
 
 <footer>
   <div class="name">DevOrchestrator</div>
-  <p>Brainstormed by Yuvaraj &times; Claude &mdash; June 2026</p>
+  <p>Designed by Yuvaraj &times; Claude &mdash; June 2026</p>
   <p style="margin-top:.3rem">Human owns the thinking. Machine owns the plumbing.</p>
 </footer>
 

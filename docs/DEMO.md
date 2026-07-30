@@ -7,10 +7,7 @@
 
 ## Why this doc exists
 
-`devorchestrator start` / `devorchestrator pr` / `devorchestrator review` are not runnable end-to-end yet — `pipeline.build_pipeline()` and `review.build_review()` are still Wave-3 stubs (confirmed unconditional `LanePending` on every branch as of issue #7, despite issue #3 being closed — #3 delivered the pipeline *skeleton*, not the final wiring). **`scripts/demo.sh` is the workaround**: it constructs the real `Pipeline`/`ReviewGate` directly from the adapters that already exist and work — `GithubBoard` (#5), `GithubGit` (#6), `ClaudeSession` (#8), `SubprocessCheckRunner` (#11), `SupabaseMesh` (Lane D). Once harsha finishes Wave-3 wiring, this whole script collapses to:
-```bash
-devorchestrator start && devorchestrator pr && devorchestrator review
-```
+`pipeline.build_pipeline()` and `review.build_review()` were unconditional `LanePending` stubs through issue #7 — `devorchestrator start`/`pr`/`review` couldn't run at all. That Wave-3 wiring is now done (merged into `dev`): the real CLI commands work end-to-end. **Use the real commands below** (`devorchestrator start` etc.) for the actual demo. `scripts/demo.sh` is kept as a documented equivalent/fallback — it constructs the same `Pipeline`/`ReviewGate` by hand and is useful if you want the whole loop scripted in one non-interactive shot instead of three separate commands.
 
 ---
 
@@ -20,15 +17,23 @@ devorchestrator start && devorchestrator pr && devorchestrator review
 2. **Env vars** (`.env` or exported):
    - `GITHUB_TOKEN` — PAT with `repo` scope (issues, contents, pulls)
    - `SUPABASE_SERVICE_KEY` — optional; without it the demo runs with the mesh disabled (task→PR loop still works, no conflict detection / decision log)
-   - `DEMO_REVIEWER` — optional GitHub username to request as PR reviewer
+   - `OPENROUTER_API_KEY`, `MATTERMOST_WEBHOOK` — required by config validation even if not central to the demo; any placeholder value satisfies the check
 3. **Tools on PATH**: `tmux`, `claude` (logged in — `claude auth login`), `uv`
-4. **Merge status**: this script needs `github_git.py` (issue #6, PR #29). If #29 hasn't merged into `dev` yet, run the script from a branch that has it (e.g. `feature/issue-7-demo-dry-run-seed-issue-demo-script`, which is stacked on the issue #6 branch).
-5. **The seeded demo issue** — **#30** ("demo: add a Python version guard helper") is already on the board (Backlog). It's deliberately small and isolated (new files only, touches no lane-owned file) so a live AI run has good odds of finishing cleanly on stage. Re-open it before each rehearsal if a prior run closed/merged it.
+4. **The seeded demo issue** — **#30** ("demo: add a Python version guard helper") is already on the board (Backlog). It's deliberately small and isolated (new files only, touches no lane-owned file) so a live AI run has good odds of finishing cleanly on stage. Re-open it before each rehearsal if a prior run closed/merged it.
 
 ---
 
 ## Running it
 
+**Real CLI (recommended — this is what's actually being demoed):**
+```bash
+devorchestrator start          # pick #30, watch research + impl run live in tmux
+# ... review the code the AI wrote ...
+devorchestrator pr              # checks (autofix on failure) -> opens the real PR
+devorchestrator review          # TL gate: diff | checks | artifact -> [a]/[r]/[q]
+```
+
+**Scripted equivalent** (one shot, no manual step between implementation and PR):
 ```bash
 ./scripts/demo.sh
 ```

@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# scripts/demo.sh — the 18h hackathon live demo driver.
+# scripts/demo.sh — scripted equivalent of the live demo, in one shot.
 #
 # Runs the REAL pipeline against a seeded demo issue: task -> branch -> live
 # tmux research + implementation sessions -> checks (autofix on failure) ->
 # PR -> TL approval, all against real GitHub + Supabase.
 #
-# WHY THIS SCRIPT EXISTS INSTEAD OF `devorchestrator start`:
-# pipeline.build_pipeline() and review.build_review() are still Wave-3 stubs
-# (see pipeline.py's own "TODO(wave-3): instantiate concrete adapters from
-# config here" — confirmed unconditional on every branch as of issue #7).
-# This script constructs Pipeline/ReviewGate directly from the adapters that
-# already exist and work: GithubBoard (#5), GithubGit (#6), ClaudeSession x2
-# (#8), SubprocessCheckRunner (#11), SupabaseMesh (Lane D). Once harsha
-# finishes Wave-3 wiring, this whole script collapses to two commands:
-#   devorchestrator start && devorchestrator pr && devorchestrator review
+# `devorchestrator start && devorchestrator pr && devorchestrator review`
+# now does the same thing as three separate commands (Wave-3 wiring is done —
+# see build_pipeline()/build_review()). This script exists for a one-shot,
+# non-interactive run: it constructs Pipeline/ReviewGate directly rather than
+# stopping between steps for the dev to review the code, which the real CLI
+# does deliberately (see docs/research.md's two-command design).
 #
 # See docs/DEMO.md for the full runbook, the one-line pitch, and the
 # fallback plan if a live API misbehaves on stage.

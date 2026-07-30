@@ -81,12 +81,11 @@ def _root(
 
 
 @app.command()
-def init(ctx: typer.Context) -> None:
-    """Validate config, scaffold .orchestrator/, and report connection readiness.
-
-    The config + workspace setup (Spine) runs now; per-service connection tests
-    (Plane/Gitea/mesh/...) light up as those lane adapters land.
-    """
+def init(
+    ctx: typer.Context,
+    migrate: bool = typer.Option(False, "--migrate", help="Run Supabase schema migration."),
+) -> None:
+    """Validate config, scaffold .orchestrator/, test connections, and optionally migrate."""
     config = _load_or_exit(ctx, check_env=False)
     config_dir: Path = ctx.obj["config_dir"]
     workdir = config_dir / ".orchestrator"
@@ -95,7 +94,32 @@ def init(ctx: typer.Context) -> None:
         f"[green]✓[/] config valid for [bold]{config.name}[/] ({config.track.value} track)"
     )
     console.print(f"[green]✓[/] workspace ready at [cyan]{workdir}[/]")
-    console.print("[dim]›[/] connection tests (board/git/mesh/notify) pending their lane adapters.")
+
+    if not config.mesh.supabase_url:
+        console.print("[yellow]⚠  mesh.supabase_url not configured — skipping mesh setup[/]")
+    else:
+        console.print(f"[green]✓ mesh url: {config.mesh.supabase_url}[/]")
+        console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
+
+        key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+        if key:
+            from .mesh.store import SupabaseMesh, create_supabase_client
+            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            mesh.emit("dev_joined", "init", {"dev": config.name})
+            console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
+        else:
+            console.print(
+                f"[yellow]⚠  ${config.mesh.supabase_key_env} not set — mesh registration skipped[/]"
+            )
+
+    if migrate and config.mesh.supabase_url:
+        dsn = __import__("os").environ.get("SUPABASE_DSN", "")
+        if dsn:
+            from .mesh.migrate import apply as _apply_migration
+            _apply_migration(dsn)
+            console.print("[green]✓ migration applied[/]")
+        else:
+            console.print(f"[red]✗ ${config.mesh.supabase_key_env} not set — cannot migrate[/]")
 
 
 @app.command()
@@ -114,19 +138,54 @@ def start(ctx: typer.Context) -> None:
 @app.command()
 def pr(
     ctx: typer.Context,
-    autofix: bool = typer.Option(
-        True, "--autofix/--no-autofix", help="Re-invoke the agent to fix failing checks."
+    all_checks: bool = typer.Option(
+        False, "--all-checks", help="Run all checks even if one fails.",
+    ),
+    autofix_on: bool = typer.Option(
+        True, "--autofix/--no-autofix", help="Auto-fix on check failure.",
     ),
 ) -> None:
     """Run quality gates (autofix on failure), then open a PR with an AI description."""
-    config = _load_or_exit(ctx)
+    config = _load_or_exit(ctx, check_env=False)
+    from .checks.runner import SubprocessCheckRunner
+    if autofix_on:
+        from .checks.autofix import autofix as _autofix
+        results = _autofix(
+            SubprocessCheckRunner(all_checks=all_checks), max_retries=config.autofix_retries
+        )
+    else:
+        runner = SubprocessCheckRunner(all_checks=all_checks)
+        results = runner.run_all()
+        SubprocessCheckRunner.render(results)
+
+    from .mesh.store import SupabaseMesh, create_supabase_client
+    from .pr_description import generate_pr_description, save_pr_description
+
+    branch = _detect_branch()
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    if not results or all(r.passed for r in results) and key:
+        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+        mesh.emit("pr_pass", "pr", {"dev": config.name})
+
+    if config.notify:
+        notifier = config.notify.build_notifier()
+        if notifier:
+            status = "passed" if not results or all(r.passed for r in results) else "failed"
+            notifier.notify(f"`devorchestrator pr` checks {status} on {branch} ({config.name})")
+
+    desc = generate_pr_description(branch)
+    out = save_pr_description(desc, branch)
+    console.print(f"[green]PR description saved to {out}[/]")
+
+
+def _detect_branch() -> str:
     try:
-        pipeline = build_pipeline(config)
-    except LanePending as exc:
-        _pending(exc)
-        return
-    # TODO(wave-3): pipeline.prepare_pr(<current PipelineContext>, autofix=autofix)
-    _ = (pipeline, autofix)
+        import subprocess
+        proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                              capture_output=True, text=True)
+        return proc.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 @app.command()
@@ -163,20 +222,67 @@ def status(ctx: typer.Context) -> None:
     table.add_row("git", f"{config.git.type.value} @ {config.git.url}")
     table.add_row("brain", config.brain.model if config.brain else "[dim]—[/]")
     table.add_row("notify", config.notify.type.value if config.notify else "[dim]—[/]")
-    table.add_row("mesh db", config.mesh.db_path)
+    table.add_row("mesh url", config.mesh.supabase_url or "[dim]not configured[/]")
     console.print(table)
 
 
 @app.command()
-def mesh() -> None:
+def mesh(
+    ctx: typer.Context,
+    check: list[str] = typer.Option(
+        [], "--check", "-c", help="Check if any of these modules have overlapping activity.",
+    ),
+) -> None:
     """Show the live team activity table from the shared context mesh."""
-    _stub("mesh", owner_lane="mesh")
+    config = _load_or_exit(ctx, check_env=False)
+    from .mesh.conflict import warn_on_overlap
+    from .mesh.dashboard import render_dashboard
+    from .mesh.store import SupabaseMesh, create_supabase_client
+
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    client = create_supabase_client(config.mesh.supabase_url, key)
+    mesh_inst = SupabaseMesh(client)
+
+    if check:
+        warnings = warn_on_overlap(mesh_inst, check)
+        if warnings:
+            console.print("[bold]Module overlap warnings:[/]")
+            for w in warnings:
+                console.print(w)
+            console.print()
+        else:
+            console.print("[green]✓ No overlapping activity detected[/]\n")
+
+    render_dashboard(mesh_inst)
 
 
 @app.command()
-def decision(message: str = typer.Argument(..., help="The architectural decision to log.")) -> None:
+def decision(
+    ctx: typer.Context,
+    message: str = typer.Argument(..., help="The architectural decision to log."),
+    module: str = typer.Option("unknown", "--module", "-m", help="Affected module name."),
+) -> None:
     """Log an architectural decision into the shared mesh, visible to the whole team."""
-    _stub("decision", owner_lane="mesh")
+    config = _load_or_exit(ctx, check_env=False)
+    from .mesh.store import SupabaseMesh, create_supabase_client
+
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    client = create_supabase_client(config.mesh.supabase_url, key)
+    mesh_inst = SupabaseMesh(client)
+    mesh_inst.emit("decision", module, {
+        "dev": config.name,
+        "description": message,
+        "modules": [module],
+    })
+    console.print(f"[green]Decision logged:[/] {message}")
+
+    from .mesh.conflict import warn_on_overlap
+    warnings = warn_on_overlap(mesh_inst, [module])
+    if warnings:
+        console.print()
+        console.print("[yellow]Note: overlapping activity on this module:[/]")
+        for w in warnings:
+            console.print(w)
 
 
 def main() -> None:

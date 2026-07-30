@@ -295,10 +295,15 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     """Construct a Pipeline wired to the real adapters for ``config``.
 
     Until Lane B/C/D land, this raises :class:`LanePending` for the first missing
-    adapter. Wave-3 integration (Lane A's call) fills in the construction below;
-    the ``Pipeline`` class above does not change.
+    adapter. Once every adapter module exists, constructs the real board/git/
+    session/check/mesh/notifier objects from ``config`` and returns a working
+    ``Pipeline`` — the same construction ``scripts/demo.sh`` did by hand while
+    this function was still a stub (see docs/DEMO.md).
     """
     import importlib.util
+    import os
+
+    from .config import BoardType, GitType
 
     for component, module, where in _REQUIRED_ADAPTERS:
         try:
@@ -308,7 +313,58 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         if spec is None:
             raise LanePending(component, where)
 
-    # TODO(wave-3): all adapter modules exist — instantiate concrete adapters from
-    # config here and return Pipeline(config, board=..., git=..., research=...,
-    # impl=..., checks=..., mesh=..., notifier=..., on_event=on_event).
-    raise LanePending("wiring", "Lane A: pipeline.build_pipeline (Wave-3 integration)")
+    # Only a GitHub board/git adapter exists in this repo (Plane/Azure deferred
+    # post-hackathon — docs/product-backlog.md Horizon H1); a config targeting
+    # those reports the same "adapter not available yet" as a missing module.
+    if config.board.type is not BoardType.github:
+        raise LanePending(
+            "board",
+            f"Lane B: only board.type=github is implemented (got {config.board.type.value!r})",
+        )
+    if config.git.type is not GitType.github:
+        raise LanePending(
+            "git", f"Lane B: only git.type=github is implemented (got {config.git.type.value!r})"
+        )
+
+    from .checks.runner import SubprocessCheckRunner
+    from .integrations.github_board import GithubBoard
+    from .integrations.github_git import GithubGit
+    from .pr_description import generate_pr_description
+    from .sessions.tmux_runner import ClaudeSession, SessionKind
+
+    board = GithubBoard(
+        url=config.board.url,
+        token=os.environ[config.board.token_env],
+        dev_name=config.name,
+        project_number=config.board.project_number,
+    )
+    git = GithubGit(
+        url=config.git.url,
+        token=os.environ[config.git.token_env],
+    )
+    research = ClaudeSession(SessionKind.research, agent=config.agent.value)
+    impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
+    checks = SubprocessCheckRunner()
+
+    mesh = None
+    mesh_key = os.environ.get(config.mesh.supabase_key_env, "")
+    if config.mesh.supabase_url and mesh_key:
+        from .mesh.store import SupabaseMesh, create_supabase_client
+
+        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, mesh_key))
+
+    notifier = config.notify.build_notifier() if config.notify is not None else None
+
+    return Pipeline(
+        config,
+        board=board,
+        git=git,
+        research=research,
+        impl=impl,
+        checks=checks,
+        mesh=mesh,
+        notifier=notifier,
+        describe_pr=lambda ctx: generate_pr_description(ctx.branch.name, base=ctx.branch.base),
+        workdir=workdir,
+        on_event=on_event,
+    )

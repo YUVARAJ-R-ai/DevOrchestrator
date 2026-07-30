@@ -16,7 +16,6 @@ from __future__ import annotations
 import textwrap
 
 import pytest
-from conftest import FakeChecks, FakeGit, FakeMesh, FakeNotifier, make_config, passing
 
 from devorchestrator.contracts import BranchRef, Issue
 from devorchestrator.pipeline import Pipeline
@@ -25,6 +24,15 @@ from devorchestrator.sessions.tmux_runner import (
     SessionFailed,
     SessionKind,
     tmux_available,
+)
+from tests.conftest import (
+    FakeChecks,
+    FakeGit,
+    FakeMesh,
+    FakeNotifier,
+    failing,
+    make_config,
+    passing,
 )
 
 
@@ -160,8 +168,6 @@ def test_failed_session_raises_instead_of_returning_quietly(tmp_path):
 
 def test_autofix_retry_loop_reinvokes_the_impl_session(tmp_path, agent):
     """The Spine's autofix budget drives Lane C's impl session again."""
-    from conftest import failing
-
     checks = FakeChecks([[failing("pytest")], [passing("pytest")]])
     pipeline = _pipeline(tmp_path, agent, checks=checks)
     ctx = pipeline.start(select=lambda issues: issues[0])

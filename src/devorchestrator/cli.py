@@ -9,6 +9,9 @@ Entry point (see pyproject.toml [project.scripts]): ``devorchestrator.cli:main``
 
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 from pathlib import Path
 
 import typer
@@ -16,7 +19,7 @@ from rich.console import Console
 
 from . import __version__
 from .config import Config, ConfigError, load_config
-from .pipeline import LanePending, build_pipeline
+from .pipeline import LanePending, PipelineAborted, PipelineError, build_pipeline
 from .review import build_review
 
 app = typer.Typer(
@@ -101,7 +104,7 @@ def init(
         console.print(f"[green]✓ mesh url: {config.mesh.supabase_url}[/]")
         console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
 
-        key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+        key = os.environ.get(config.mesh.supabase_key_env, "")
         if key:
             from .mesh.store import SupabaseMesh, create_supabase_client
             mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
@@ -113,7 +116,7 @@ def init(
             )
 
     if migrate and config.mesh.supabase_url:
-        dsn = __import__("os").environ.get("SUPABASE_DSN", "")
+        dsn = os.environ.get("SUPABASE_DSN", "")
         if dsn:
             from .mesh.migrate import apply as _apply_migration
             _apply_migration(dsn)
@@ -124,20 +127,39 @@ def init(
 
 @app.command()
 def start(ctx: typer.Context) -> None:
-    """Pick a task, create a branch, run research + implementation sessions."""
+    """Pick a task, create a branch, run research + implementation sessions.
+
+    Stops after the implementation session — checks + PR creation are a
+    separate step (`devorchestrator pr`) so the dev reviews the code first.
+    """
     config = _load_or_exit(ctx)  # fail loud on bad config before touching adapters
     try:
         pipeline = build_pipeline(config, on_event=lambda m: console.print(f"[dim]›[/] {m}"))
     except LanePending as exc:
         _pending(exc)
         return
-    # TODO(wave-3): ctx_ = pipeline.start(<Lane B task selector>); pipeline.prepare_pr(ctx_)
-    _ = pipeline
+
+    from .integrations.selector import select_issue
+
+    try:
+        pctx = pipeline.start(lambda issues: select_issue(issues, console))
+    except PipelineAborted as exc:
+        console.print(f"[yellow]›[/] {exc}")
+        raise typer.Exit(code=0) from exc
+    except PipelineError as exc:
+        console.print(f"[red]✗ pipeline error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"[green]✓[/] Implementation done on [cyan]{pctx.branch.name}[/]. "
+        "Review the code, then run [bold]devorchestrator pr[/] when ready."
+    )
 
 
 @app.command()
 def pr(
     ctx: typer.Context,
+    base: str = typer.Option("dev", "--base", help="Branch to open the PR against."),
     all_checks: bool = typer.Option(
         False, "--all-checks", help="Run all checks even if one fails.",
     ),
@@ -158,34 +180,67 @@ def pr(
         results = runner.run_all()
         SubprocessCheckRunner.render(results)
 
-    from .mesh.store import SupabaseMesh, create_supabase_client
-    from .pr_description import generate_pr_description, save_pr_description
+    if results and not all(r.passed for r in results):
+        console.print("[red]✗ checks still failing — not opening a PR.[/]")
+        raise typer.Exit(code=1)
 
     branch = _detect_branch()
-    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
-    if not results or all(r.passed for r in results) and key:
+    issue_id = _issue_id_from_branch(branch)
+
+    from .pr_description import generate_pr_description, save_pr_description
+
+    desc = generate_pr_description(branch, base=base)
+    out = save_pr_description(desc, branch)
+    console.print(f"[dim]PR description saved to {out}[/]")
+
+    from .contracts import BranchRef
+    from .integrations.github_git import GithubGit
+
+    git = GithubGit(url=config.git.url, token=os.environ[config.git.token_env])
+    branch_ref = BranchRef(name=branch, issue_id=issue_id or "", base=base)
+    title = _title_from_branch(branch, issue_id)
+    pull_request = git.open_pr(branch_ref, title=title, body=desc)
+    console.print(f"[green]✓ PR opened:[/] {pull_request.url}")
+
+    key = os.environ.get(config.mesh.supabase_key_env, "")
+    if config.mesh.supabase_url and key:
+        from .mesh.store import SupabaseMesh, create_supabase_client
+
         mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
-        mesh.emit("pr_pass", "pr", {"dev": config.name})
+        mesh.emit("pr_opened", branch, {
+            "dev": config.name, "pr_url": pull_request.url, "pr_number": pull_request.number,
+        })
 
     if config.notify:
         notifier = config.notify.build_notifier()
         if notifier:
-            status = "passed" if not results or all(r.passed for r in results) else "failed"
-            notifier.notify(f"`devorchestrator pr` checks {status} on {branch} ({config.name})")
-
-    desc = generate_pr_description(branch)
-    out = save_pr_description(desc, branch)
-    console.print(f"[green]PR description saved to {out}[/]")
+            notifier.notify(f"PR ready: {title} — {pull_request.url} ({config.name})")
 
 
 def _detect_branch() -> str:
     try:
-        import subprocess
-        proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                              capture_output=True, text=True)
+        proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True
+        )
         return proc.stdout.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def _issue_id_from_branch(branch: str) -> str | None:
+    """Recover the issue number from `feature/issue-N-slug` (Issue.branch_slug())."""
+    match = re.search(r"issue-(\d+)-", branch)
+    return match.group(1) if match else None
+
+
+def _title_from_branch(branch: str, issue_id: str | None) -> str:
+    """Best-effort human title from the branch slug (no per-number issue fetch yet)."""
+    slug = branch.removeprefix("feature/").removeprefix("fix/")
+    if issue_id:
+        slug = re.sub(rf"^issue-{issue_id}-", "", slug)
+    words = slug.replace("-", " ").strip()
+    prefix = f"issue #{issue_id}: " if issue_id else ""
+    return f"{prefix}{words}" if words else branch
 
 
 @app.command()
@@ -197,8 +252,27 @@ def review(ctx: typer.Context) -> None:
     except LanePending as exc:
         _pending(exc)
         return
-    # TODO(wave-3): for pr in gate.open_prs(): gate.render(...); dispatch [a]/[r]
-    _ = gate
+
+    prs = gate.open_prs()
+    if not prs:
+        console.print("[dim]No PRs awaiting your review.[/]")
+        return
+
+    for pull_request in prs:
+        gate.review_pr(pull_request, checks=[])
+        prompt = "[a] approve & merge  [r] reject  [q] quit"
+        choice = typer.prompt(prompt, default="q").strip().lower()
+        if choice == "a":
+            decision = gate.approve(pull_request)
+            console.print(f"[green]✓ {decision.action}:[/] {decision.pr.url}")
+        elif choice == "r":
+            reason = typer.prompt("Rejection reason")
+            decision = gate.reject(pull_request, reason)
+            console.print(f"[yellow]✓ {decision.action}:[/] {decision.reason}")
+        else:
+            console.print("[dim]Skipped.[/]")
+            if choice == "q":
+                break
 
 
 @app.command()
@@ -239,7 +313,7 @@ def mesh(
     from .mesh.dashboard import render_dashboard
     from .mesh.store import SupabaseMesh, create_supabase_client
 
-    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    key = os.environ.get(config.mesh.supabase_key_env, "")
     client = create_supabase_client(config.mesh.supabase_url, key)
     mesh_inst = SupabaseMesh(client)
 
@@ -266,7 +340,7 @@ def decision(
     config = _load_or_exit(ctx, check_env=False)
     from .mesh.store import SupabaseMesh, create_supabase_client
 
-    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    key = os.environ.get(config.mesh.supabase_key_env, "")
     client = create_supabase_client(config.mesh.supabase_url, key)
     mesh_inst = SupabaseMesh(client)
     mesh_inst.emit("decision", module, {

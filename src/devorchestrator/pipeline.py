@@ -22,6 +22,7 @@ it). Rich rendering lives in the CLI and in ``review.py``, not here.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -161,6 +162,9 @@ class Pipeline:
         self._event("implementation session finished")
         if self.local_git:
             self._commit_and_push(branch, issue)
+        # `devorchestrator pr` runs as a separate process (the human reviews the
+        # code in between), so the issue/branch it needs has to survive on disk.
+        save_pipeline_context(ctx, root=self.workdir)
         return ctx
 
     def prepare_pr(self, ctx: PipelineContext, *, autofix: bool = True) -> PipelineContext:
@@ -268,6 +272,87 @@ class Pipeline:
 
     def _event(self, message: str) -> None:
         self._on_event(message)
+
+
+# ---------------------------------------------------------------------------
+# Cross-process context hand-off (start -> pr)
+# ---------------------------------------------------------------------------
+
+#: Written by start(), read by `devorchestrator pr`.
+CONTEXT_FILENAME = "context.json"
+
+
+def context_path(branch: str, *, root: Path | str = ".orchestrator") -> Path:
+    return Path(root) / branch / CONTEXT_FILENAME
+
+
+def save_pipeline_context(ctx: PipelineContext, *, root: Path | str = ".orchestrator") -> Path:
+    """Persist the parts of ``ctx`` that ``pr`` can't rediscover on its own.
+
+    Only the issue and branch are stored. The artifact is deliberately left out
+    and re-read from artifact.md by :func:`load_pipeline_context`, so an artifact
+    edited between the two commands is picked up rather than going stale; checks
+    and the pull request belong to the ``pr`` run itself.
+    """
+    if ctx.branch is None:
+        raise PipelineError("cannot save a context with no branch.")
+    path = context_path(ctx.branch.name, root=root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "issue": {
+                    "id": ctx.issue.id,
+                    "title": ctx.issue.title,
+                    "description": ctx.issue.description,
+                },
+                "branch": {
+                    "name": ctx.branch.name,
+                    "issue_id": ctx.branch.issue_id,
+                    "base": ctx.branch.base,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_pipeline_context(
+    branch: str, *, root: Path | str = ".orchestrator"
+) -> PipelineContext | None:
+    """Rebuild the context ``start()`` saved, or None if it isn't there / is unreadable.
+
+    Returns None rather than raising so callers can print an actionable "run
+    devorchestrator start first" instead of a traceback.
+    """
+    path = context_path(branch, root=root)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        issue_data, branch_data = data["issue"], data["branch"]
+    except (json.JSONDecodeError, KeyError, OSError):
+        return None
+
+    ctx = PipelineContext(
+        issue=Issue(
+            id=issue_data["id"],
+            title=issue_data["title"],
+            description=issue_data.get("description", ""),
+        ),
+        branch=BranchRef(
+            name=branch_data["name"],
+            issue_id=branch_data["issue_id"],
+            base=branch_data.get("base", "dev"),
+        ),
+    )
+
+    from .sessions.artifact import load_artifact
+
+    ctx.artifact = load_artifact(branch, issue_id=ctx.issue.id, root=root)
+    return ctx
 
 
 # ---------------------------------------------------------------------------

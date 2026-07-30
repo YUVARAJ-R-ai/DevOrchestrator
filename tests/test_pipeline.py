@@ -13,6 +13,8 @@ from devorchestrator.pipeline import (
     PipelineAborted,
     PipelineError,
     build_pipeline,
+    context_path,
+    load_pipeline_context,
 )
 from tests.conftest import (
     ARTIFACT_BODY,
@@ -158,6 +160,40 @@ def test_prepare_pr_no_autofix_raises_immediately(tmp_path, branch, issue):
         pipe.prepare_pr(ctx, autofix=False)
     assert len(impl.prompts) == 1  # implement only, no fix attempts
     assert checks.calls == 1
+
+
+def test_start_persists_context_for_pr(tmp_path, branch, issue):
+    """`devorchestrator pr` is a separate process — start() must leave it the issue."""
+    workdir = tmp_path / ".orchestrator"
+    pipe, _, _ = _pipeline(tmp_path, branch, issue)
+    pipe.start(select=lambda issues: issues[0])
+
+    assert context_path(branch.name, root=workdir).is_file()
+
+    restored = load_pipeline_context(branch.name, root=workdir)
+    assert restored is not None
+    assert restored.issue.id == issue.id
+    assert restored.issue.title == issue.title
+    assert restored.branch.name == branch.name
+    assert restored.branch.base == branch.base
+    # artifact is re-read from disk, not from the json — an artifact edited
+    # between `start` and `pr` should be the one that gets used
+    assert restored.artifact is not None
+    assert "devorchestrator" in restored.artifact.modules_affected
+
+
+def test_load_pipeline_context_returns_none_when_absent(tmp_path):
+    """Missing context is a normal case (user ran `pr` first) — None, not a crash."""
+    assert load_pipeline_context("feature/nope", root=tmp_path / ".orchestrator") is None
+
+
+def test_load_pipeline_context_returns_none_on_corrupt_json(tmp_path):
+    workdir = tmp_path / ".orchestrator"
+    path = context_path("feature/x", root=workdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+
+    assert load_pipeline_context("feature/x", root=workdir) is None
 
 
 def test_build_pipeline_reports_lane_pending():

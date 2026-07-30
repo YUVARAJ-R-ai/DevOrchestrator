@@ -1,0 +1,28 @@
+# DevOrchestrator config — copy to devOrchestrator.yaml and fill in.
+# Secrets live in .env; the *_env fields below name the env var to read.
+
+name: yuvaraj          # FILL IN — your name (used in mesh + notifications)
+role: dev              # dev | tl
+agent: claude          # claude | agy
+
+board:
+  type: plane          # plane | azure_boards
+  url: https://plane.team.internal
+  token_env: PLANE_API_KEY
+
+git:
+  type: gitea          # gitea | azure_repos  (must match board's track)
+  url: https://gitea.team.internal
+  token_env: GITEA_TOKEN
+
+brain:                 # optional — external LLM for PR descriptions
+  provider: openrouter
+  model: deepseek/deepseek-v4-flash
+  token_env: OPENROUTER_API_KEY
+
+notify:                # optional
+  type: mattermost     # mattermost | teams
+  webhook_env: MATTERMOST_WEBHOOK
+
+mesh:                  # optional — defaults shown
+  db_path: .orchestrator/mesh.db

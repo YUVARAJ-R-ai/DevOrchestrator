@@ -184,6 +184,7 @@ notify: { type: mattermost, webhook_env: MATTERMOST_WEBHOOK }
 |---|---|
 | **[docs/vision.md](docs/vision.md)** | The complete AI-Native Enterprise vision, the design stance, and open questions |
 | **[docs/TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md)** | 18h hackathon: 4 conflict-free lanes, wave timeline, git flow, vendored skills |
+| **[docs/spine.md](docs/spine.md)** | Lane A full reference: every `contracts.py` type/Protocol, `pipeline.py`/`review.py` walkthroughs, adapter skeletons to copy-paste, testing patterns, troubleshooting |
 | [docs/research.md](docs/research.md) | Problem, pipeline detail, competitive landscape, tech decisions, risks |
 | [docs/product-backlog.md](docs/product-backlog.md) | Ordered backlog: MVP epics + H2/H3 vision epics |
 | [docs/sprints.md](docs/sprints.md) | 4-sprint MVP overview and vision horizons |

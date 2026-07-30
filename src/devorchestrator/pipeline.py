@@ -408,10 +408,7 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         checks=checks,
         mesh=mesh,
         notifier=notifier,
-        describe_pr=lambda ctx: generate_pr_description(
-            ctx.branch.name, base=ctx.branch.base, config=config
-        ),
+        describe_pr=lambda ctx: generate_pr_description(ctx.branch.name, base=ctx.branch.base),
         workdir=workdir,
         on_event=on_event,
-        local_git=True,
     )

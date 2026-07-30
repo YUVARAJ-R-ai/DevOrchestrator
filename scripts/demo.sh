@@ -89,7 +89,6 @@ pipeline = Pipeline(
     mesh=mesh,
     describe_pr=lambda ctx: generate_pr_description(ctx.branch.name, base=ctx.branch.base),
     on_event=lambda m: print(f"› {m}"),
-    local_git=True,
 )
 
 

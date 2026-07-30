@@ -20,7 +20,7 @@ import yaml
 from rich.console import Console
 
 from . import __version__
-from .config import CONFIG_FILENAME, Config, ConfigError, load_config
+from .config import Config, ConfigError, load_config
 from .pipeline import LanePending, PipelineAborted, PipelineError, build_pipeline
 from .review import build_review
 
@@ -372,7 +372,7 @@ def pr(
 
     from .pr_description import generate_pr_description, save_pr_description
 
-    desc = generate_pr_description(branch, base=base, config=config)
+    desc = generate_pr_description(branch, base=base)
     out = save_pr_description(desc, branch)
     console.print(f"[dim]PR description saved to {out}[/]")
 

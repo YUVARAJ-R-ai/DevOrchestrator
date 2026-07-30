@@ -51,6 +51,7 @@ logs/
 *.log
 *.pid
 .orchestrator-state/
+.orchestrator/
 tmp/
 
 # Docs output (generated, not source)

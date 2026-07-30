@@ -161,10 +161,15 @@ _GIT_ADAPTER = ("git", "devorchestrator.integrations.github_git",
 def build_review(config: Config, *, console: Console | None = None) -> ReviewGate:
     """Construct a ReviewGate wired to the real git adapter for ``config``.
 
-    Raises :class:`LanePending` until Lane B's git adapter lands; Wave-3 fills in
-    the construction. The ``ReviewGate`` class above does not change.
+    Raises :class:`LanePending` until Lane B's git adapter lands. Once it exists,
+    constructs the real git/mesh/notifier objects from ``config`` and returns a
+    working ``ReviewGate`` — the same construction ``scripts/demo.sh`` did by
+    hand while this function was still a stub (see docs/DEMO.md).
     """
     import importlib.util
+    import os
+
+    from .config import GitType
 
     component, module, where = _GIT_ADAPTER
     try:
@@ -173,5 +178,28 @@ def build_review(config: Config, *, console: Console | None = None) -> ReviewGat
         spec = None  # parent package (the lane) doesn't exist yet
     if spec is None:
         raise LanePending(component, where)
-    # TODO(wave-3): return ReviewGate(config, git=<GiteaGit(config)>, mesh=..., notifier=...)
-    raise LanePending("wiring", "Lane A: review.build_review (Wave-3 integration)")
+
+    # Only a GitHub git adapter exists in this repo (Plane/Azure deferred
+    # post-hackathon — docs/product-backlog.md Horizon H1).
+    if config.git.type is not GitType.github:
+        raise LanePending(
+            "git", f"Lane B: only git.type=github is implemented (got {config.git.type.value!r})"
+        )
+
+    from .integrations.github_git import GithubGit
+
+    git = GithubGit(
+        url=config.git.url,
+        token=os.environ[config.git.token_env],
+    )
+
+    mesh = None
+    mesh_key = os.environ.get(config.mesh.supabase_key_env, "")
+    if config.mesh.supabase_url and mesh_key:
+        from .mesh.store import SupabaseMesh, create_supabase_client
+
+        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, mesh_key))
+
+    notifier = config.notify.build_notifier() if config.notify is not None else None
+
+    return ReviewGate(config, git=git, mesh=mesh, notifier=notifier, console=console)

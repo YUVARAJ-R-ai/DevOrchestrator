@@ -68,6 +68,30 @@ def test_azure_track_detected(tmp_path: Path) -> None:
     assert cfg.track is Track.azure
 
 
+def test_github_track_detected(tmp_path: Path) -> None:
+    github = VALID.replace("type: plane", "type: github").replace("type: gitea", "type: github")
+    _write(tmp_path, github)
+    cfg = load_config(tmp_path, check_env=False)
+    assert cfg.track is Track.github
+
+
+def test_github_track_mismatch_with_gitea_is_caught(tmp_path: Path) -> None:
+    bad = VALID.replace("type: plane", "type: github")  # git.type stays gitea
+    _write(tmp_path, bad)
+    with pytest.raises(ConfigError, match="same track"):
+        load_config(tmp_path, check_env=False)
+
+
+def test_project_number_is_optional_and_parses(tmp_path: Path) -> None:
+    github = VALID.replace("type: plane", "type: github").replace("type: gitea", "type: github")
+    github = github.replace(
+        "token_env: PLANE_API_KEY", "token_env: PLANE_API_KEY\n  project_number: 10"
+    )
+    _write(tmp_path, github)
+    cfg = load_config(tmp_path, check_env=False)
+    assert cfg.board.project_number == 10
+
+
 def test_missing_env_var_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PLANE_API_KEY", raising=False)
     monkeypatch.delenv("GITEA_TOKEN", raising=False)
@@ -97,7 +121,8 @@ def test_shipped_template_is_valid(tmp_path: Path) -> None:
         template.read_text(encoding="utf-8"), encoding="utf-8"
     )
     cfg = load_config(tmp_path, check_env=False)
-    assert cfg.track is Track.oss
+    assert cfg.track is Track.github
+    assert cfg.board.project_number == 10
 
 
 def test_notify_config_build_notifier_with_env(  # noqa: E501

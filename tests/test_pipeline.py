@@ -163,3 +163,29 @@ def test_build_pipeline_reports_lane_pending():
         build_pipeline(make_config())
     assert exc.value.component == "board"
     assert "Lane B" in exc.value.where
+
+
+def test_build_pipeline_constructs_real_adapters_for_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The only adapter that exists is GitHub; a github-typed config should wire it for real."""
+    from devorchestrator.checks.runner import SubprocessCheckRunner
+    from devorchestrator.integrations.github_board import GithubBoard
+    from devorchestrator.integrations.github_git import GithubGit
+    from devorchestrator.sessions.tmux_runner import ClaudeSession
+
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    monkeypatch.setenv("GIT_TOKEN", "t")
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    pipeline = build_pipeline(config)
+
+    assert isinstance(pipeline.board, GithubBoard)
+    assert isinstance(pipeline.git, GithubGit)
+    assert isinstance(pipeline.research, ClaudeSession)
+    assert isinstance(pipeline.impl, ClaudeSession)
+    assert isinstance(pipeline.checks, SubprocessCheckRunner)
+    assert pipeline.mesh is None  # no SUPABASE_SERVICE_KEY set

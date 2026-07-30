@@ -48,13 +48,18 @@ Expected adapter modules (checked by the factories):
 - `sessions/tmux_runner.py` — Lane C
 - `checks/runner.py`, `mesh/store.py`, `notify.py` — Lane D
 
-## Known contract gap (needs a coordinated `contracts.py` change)
+## Contract change: review-flow methods on `GitAdapter`
 
-The full review flow needs four methods the frozen `GitAdapter` does **not** expose
-yet: `list_open_prs(assignee)`, `get_diff(pr)`, `get_ci_status(pr)`, `comment_pr(pr, body)`.
-Per the golden rules, the Spine owner adds these to `contracts.py` and everyone pulls.
-Until then, `ReviewGate.render()` takes the diff / checks / CI as **inputs**, and
-`reject()` sends feedback via the `Notifier` instead of an on-PR comment.
+The full review flow needs four methods on `GitAdapter`: `list_open_prs(assignee)`,
+`get_diff(pr)`, `get_ci_status(pr)`, `comment_pr(pr, body)`. These are **added to
+`contracts.py`** (additive — Lane B adapters that only drive the pipeline can stub
+them until review is wired). With them, `ReviewGate.open_prs()` lists the TL's PRs
+and `review_pr()` pulls the diff + CI itself; `reject()` posts the reason as an
+on-PR comment as well as notifying.
+
+> Because `contracts.py` is the frozen shared file, this addition is a **coordinated
+> change**: the Spine owner lands it and every lane pulls. It ships on its own branch
+> so the team can review the contract delta before it merges.
 
 ## Try it
 

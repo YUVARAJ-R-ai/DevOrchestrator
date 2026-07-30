@@ -288,15 +288,22 @@ def init(
         console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
 
         key = os.environ.get(config.mesh.supabase_key_env, "")
-        if key:
-            from .mesh.store import SupabaseMesh, create_supabase_client
-            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
-            mesh.emit("dev_joined", "init", {"dev": config.name})
-            console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
-        else:
+        if not key:
             console.print(
                 f"[yellow]⚠  ${config.mesh.supabase_key_env} not set — mesh registration skipped[/]"
             )
+        else:
+            from .mesh.store import SupabaseMesh, create_supabase_client
+            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            if mesh.healthy():
+                mesh.emit("dev_joined", "init", {"dev": config.name})
+                console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
+            else:
+                console.print(
+                    f"[yellow]⚠  mesh unreachable — {mesh.last_error}[/]\n"
+                    "    (key likely belongs to a different project than mesh.supabase_url, "
+                    "or the tables aren't created yet. The loop runs fine without the mesh.)"
+                )
 
     if migrate and config.mesh.supabase_url:
         dsn = os.environ.get("SUPABASE_DSN", "")

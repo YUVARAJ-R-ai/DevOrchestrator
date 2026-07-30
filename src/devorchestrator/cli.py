@@ -153,6 +153,18 @@ def _required_env_vars(raw: dict) -> list[tuple[str, str, bool, str]]:
     return out
 
 
+_PLACEHOLDER_MARKERS = ("replace_me", "your_token", "your-token", "xxxx", "<", "changeme")
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    """True for obvious not-a-real-secret values, so 'Enter to keep' won't
+    preserve them and the connection test can warn instead of trusting them.
+    'placeholder' is intentionally allowed for brain/notify vars that genuinely
+    just need to be non-empty — only reject it for secret-shaped values."""
+    low = value.lower()
+    return any(marker in low for marker in _PLACEHOLDER_MARKERS)
+
+
 def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) -> None:
     """Prompt for every var this config references, every time.
 
@@ -172,16 +184,20 @@ def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) ->
     changed = False
     for var, label, secret, default in required:
         current = existing.get(var, "")
-        suffix = " [Enter to keep the current value]" if current else ""
+        # A leftover placeholder must NOT count as a keepable value, or "Enter to
+        # keep" silently preserves junk (exactly the trap that shipped before).
+        keepable = current and not _looks_like_placeholder(current)
+        suffix = " [Enter to keep the current value]" if keepable else ""
         value = typer.prompt(f"{label}{suffix}", default="", show_default=False, hide_input=secret)
         if value:
             if value != current:
                 changed = True
             existing[var] = value
-        elif not current:
+        elif keepable:
+            pass  # keep the real existing value, no rewrite
+        else:
             existing[var] = default
             changed = True
-        # blank input with an existing value already set -> keep it, no rewrite
 
     if changed:
         env_path.write_text(
@@ -198,6 +214,12 @@ def _test_github_connection(config: Config) -> None:
     token = os.environ.get(config.git.token_env, "")
     if not token:
         console.print("[yellow]⚠  no GitHub token set — skipping connection test[/]")
+        return
+    if _looks_like_placeholder(token):
+        console.print(
+            f"[red]✗ ${config.git.token_env} is still a placeholder ({token!r}) — "
+            "put a real GitHub token (repo + project scopes) in .env before running start[/]"
+        )
         return
 
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}

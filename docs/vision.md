@@ -58,6 +58,38 @@ The enterprise platform provides a **standard protocol** that any compatible age
 
 ---
 
+## Per-pod package manager for skills, plugins & workflows
+
+Capability in this platform is packaged as three shareable, versioned artifact types:
+
+- **Skill** — instructions for one task (e.g. `/plan-project`, `/start-task`, `/new-issue`).
+- **Plugin** — an agent capability or integration (e.g. a new `agy` adapter, a board connector).
+- **Workflow** — a *composed recipe* that chains skills, agents, quality gates, and escalation rules into a repeatable pipeline. DevOrchestrator's own task→PR loop is a workflow; a pod can define its own and share them.
+
+Every **pod or team runs its own package manager** to publish, version, install, pin, upgrade, and roll back all three — the way `npm` / `uv` / `cargo` do for code dependencies, but for **agent capabilities** and **scoped per team**.
+
+### Sharing workflows with the team
+A workflow is a declarative definition (e.g. YAML) of *how this pod runs a job* — which steps, which agents, which gates, when to escalate. Making it shareable means a teammate's proven pipeline becomes one command for everyone:
+
+- **Publish / subscribe:** `devorchestrator workflow share <name>` publishes it to the pod; teammates `devorchestrator workflow install <name>@<version>` and run the identical flow.
+- **Versioned & diffable:** a workflow is codified process — pinning a version means the whole team runs the same steps in the same order, and changes are reviewable like code.
+- **Governed:** the policy engine controls which workflows a pod may publish or run; every install is audited (a workflow executes real actions, so it is a permission surface).
+- **Manual form today → productized later:** committing a workflow YAML to the repo and sharing it over git is the hand-rolled version; the package manager makes it versioned, discoverable, and policy-gated. **Horizon (H3).**
+
+**Why per-pod, not one central registry:**
+- Teams evolve their own workflows; a pod ships its own skills at its own cadence without waiting on a central authority.
+- A skill that encodes a team's hard-won process **is organizational memory made executable** — versioning it means the knowledge is pinned, diffable, and reusable, not lost when someone leaves.
+- Bring Your Own Agent means any compliant agent loads the same versioned skill bundle — capability travels with the **pod**, not with one person's editor.
+
+**Governed, not free-for-all:**
+- The **policy engine** decides which skills/plugins a pod may publish, install, or run — a skill is executable capability, so it is a permission surface (least-privilege applies).
+- Every install/upgrade is **logged and auditable**; signatures + provenance let a pod trust a shared skill.
+- Shared skills flow between pods through an org-level index; each pod chooses what to adopt, and at which version.
+
+> **You are already doing the manual version of this.** Vendoring `/plan-project`, `/new-issue`, and `/start-task` into a repo so teammates can use them is a hand-rolled, unversioned package install. The platform feature productizes exactly that: `devorchestrator skills add / publish / pin`, semver, and policy-gated distribution. **Horizon (H3).**
+
+---
+
 ## AI-to-AI communication (done through shared memory)
 
 Instead of every engineer coordinating manually, their AI companions coordinate first — e.g. Frontend AI and Backend AI synchronizing on an API. Whenever something is resolved, the **resolution is logged, the reasoning is preserved, and future agents reuse it.** This gradually builds organizational memory instead of tribal knowledge.
@@ -144,6 +176,7 @@ The vision spans multiple years and roles. DevOrchestrator makes it real by scop
 | Escalation model | Quality gates + `--autofix` (AI→AI) → TL approval gate (AI→Human) | H0 · [Sprint 2](sprint-2.md) |
 | Persistent organizational memory | Mesh events + `devorchestrator decision "…"` | H1 · [Sprint 3](sprint-3.md) |
 | Bring Your Own Agent | Agent adapter layer: `claude` → `agy` → others | H1 · [Sprint 4](sprint-4.md) |
+| Per-pod package manager (skills/plugins/**workflows**) | Manual skill vendoring + workflow YAML in the repo today → `devorchestrator skills`/`workflow` versioned, shareable, policy-gated distribution | **H3** · [backlog](product-backlog.md#horizon-h3--enterprise-platform) |
 | **Governance / policy engine** | Least-privilege access, request/approve/audit flow | **H3** · [backlog](product-backlog.md#horizon-h3--enterprise-platform) |
 | **Agent-connection protocol** (the moat) | Documented contract any compliant agent implements | **H3** · [backlog](product-backlog.md#horizon-h3--enterprise-platform) |
 | Multi-role companions (Manager/QA/DevOps AI) | Companion + escalation patterns beyond the developer | **H2** · [backlog](product-backlog.md#horizon-h2--multi-role-companions) |

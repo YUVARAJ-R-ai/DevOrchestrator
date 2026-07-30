@@ -69,6 +69,7 @@ DevOrchestrator is the vision, scoped to one role (the developer) and one workfl
 | Escalation model | Quality gates → **TL approval gate**; `--autofix` resolves routine failures before a human sees them | ✅ MVP (Sprint 2) |
 | Persistent organizational memory | Mesh events + logged architectural decisions | ✅ MVP (Sprint 3) |
 | Bring Your Own Agent | Agent adapter layer (`claude`, then `agy`, then others) | 🟡 MVP-partial (Sprint 4) |
+| Per-pod package manager (skills, plugins & shareable workflows) | Manual vendoring today → `devorchestrator skills`/`workflow` versioned, shareable, policy-gated distribution | 🔭 Horizon (post-MVP) |
 | Governance / policy engine | Least-privilege access, audit log, policy checks | 🔭 Horizon (post-MVP) |
 | Agent-connection **protocol** (the moat) | A documented contract any compliant agent implements to plug in | 🔭 Horizon (post-MVP) |
 
@@ -132,7 +133,7 @@ Full critique and open questions: **[docs/vision.md](docs/vision.md#open-questio
 | **H1 — Team** | Deploy + notify + shared context mesh + one-command infra | [Sprint 3](docs/sprint-3.md) |
 | **H1 — Scale** | Rate-limit rotation, BYO-agent (`agy`), Azure DevOps track | [Sprint 4](docs/sprint-4.md) |
 | **H2 — Multi-role companions** | Companions beyond the developer: Manager AI, QA AI, DevOps AI | [product-backlog.md](docs/product-backlog.md) · [vision.md](docs/vision.md) |
-| **H3 — Enterprise platform** | **Governance/policy engine** + **agent-connection protocol** (the moat) | [product-backlog.md](docs/product-backlog.md) · [vision.md](docs/vision.md) |
+| **H3 — Enterprise platform** | **Governance/policy engine** + **agent-connection protocol** (the moat) + **per-pod package manager for skills/plugins/shareable workflows** | [product-backlog.md](docs/product-backlog.md) · [vision.md](docs/vision.md) |
 
 H0–H1 are the current 4-sprint MVP. H2–H3 are the vision made concrete as future epics — real, but explicitly not MVP.
 
@@ -182,6 +183,7 @@ notify: { type: mattermost, webhook_env: MATTERMOST_WEBHOOK }
 | Doc | What's in it |
 |---|---|
 | **[docs/vision.md](docs/vision.md)** | The complete AI-Native Enterprise vision, the design stance, and open questions |
+| **[docs/TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md)** | 18h hackathon: 4 conflict-free lanes, wave timeline, git flow, vendored skills |
 | [docs/research.md](docs/research.md) | Problem, pipeline detail, competitive landscape, tech decisions, risks |
 | [docs/product-backlog.md](docs/product-backlog.md) | Ordered backlog: MVP epics + H2/H3 vision epics |
 | [docs/sprints.md](docs/sprints.md) | 4-sprint MVP overview and vision horizons |

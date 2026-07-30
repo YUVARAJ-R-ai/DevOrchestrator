@@ -6,14 +6,15 @@ role: dev              # dev | tl
 agent: claude          # claude | agy
 
 board:
-  type: plane          # plane | azure_boards
-  url: https://plane.team.internal
-  token_env: PLANE_API_KEY
+  type: github         # plane | azure_boards | github
+  url: https://github.com/YUVARAJ-R-ai/DevOrchestrator   # FILL IN — your repo
+  token_env: GITHUB_TOKEN
+  project_number: 10    # FILL IN — GitHub Project (v2) number for Priority/Size fields
 
 git:
-  type: gitea          # gitea | azure_repos  (must match board's track)
-  url: https://gitea.team.internal
-  token_env: GITEA_TOKEN
+  type: github         # gitea | azure_repos | github  (must match board's track)
+  url: https://github.com/YUVARAJ-R-ai/DevOrchestrator   # FILL IN — your repo
+  token_env: GITHUB_TOKEN
 
 brain:                 # optional — external LLM for PR descriptions
   provider: openrouter

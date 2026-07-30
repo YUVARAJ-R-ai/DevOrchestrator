@@ -54,9 +54,11 @@ def test_start_happy_path(tmp_path, branch, issue):
 
     assert ctx.issue.id == "9"
     assert ctx.branch is branch
-    # research wrote the artifact; the pipeline read + parsed its module list
-    assert "src/devorchestrator/widget.py" in ctx.artifact.modules_affected
-    assert "tests/test_widget.py" in ctx.artifact.modules_affected
+    # research wrote the artifact; sessions.artifact.load_artifact parsed it.
+    # modules_affected is the *top-level module* per planned file, not the full
+    # path — that granularity is what the mesh keys conflict detection on.
+    assert "devorchestrator" in ctx.artifact.modules_affected
+    assert "test_widget.py" in ctx.artifact.modules_affected
     # research ran before impl
     assert len(research.prompts) == 1
     assert len(impl.prompts) == 1
@@ -89,8 +91,8 @@ def test_start_aborts_with_no_issues(tmp_path, branch):
 def test_conflict_warning_emitted(tmp_path, branch, issue):
     events: list[str] = []
     touching = {
-        "src/devorchestrator/widget.py": [
-            DevActivity(dev="alice", module="src/devorchestrator/widget.py",
+        "devorchestrator": [
+            DevActivity(dev="alice", module="devorchestrator",
                         branch="feature/other", event_type="task_started", ts="t0")
         ]
     }
@@ -102,8 +104,8 @@ def test_conflict_warning_emitted(tmp_path, branch, issue):
 def test_no_conflict_warning_for_self(tmp_path, branch, issue):
     events: list[str] = []
     touching = {
-        "src/devorchestrator/widget.py": [
-            DevActivity(dev="tester", module="src/devorchestrator/widget.py",
+        "devorchestrator": [
+            DevActivity(dev="tester", module="devorchestrator",
                         branch="feature/mine", event_type="task_started", ts="t0")
         ]
     }

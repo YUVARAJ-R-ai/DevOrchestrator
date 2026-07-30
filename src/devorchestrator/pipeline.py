@@ -1,13 +1,19 @@
 """The orchestration backbone — the SDLC loop expressed against `contracts`.
 
 This is Lane A's ``pipeline.py``. It runs the loop from ``docs/research.md`` (task
-→ branch → research → artifact → implement → checks → PR) **entirely against the
-frozen `contracts.py` Protocols**. No stage imports another lane's internals; every
-boundary is dependency-injected, so:
+→ branch → research → artifact → implement → checks → PR) **against the frozen
+`contracts.py` Protocols** for every swappable adapter (board / git / session /
+checks / mesh / notifier). Those boundaries are dependency-injected, so:
 
 - unit tests drive the whole loop with in-memory fakes (see tests/test_pipeline.py),
-- Wave-3 integration swaps in the real Lane B/C/D adapters via :func:`build_pipeline`
-  with **zero changes** to the orchestration logic below.
+- :func:`build_pipeline` swaps in the real Lane B/C/D adapters with **zero
+  changes** to the orchestration logic below.
+
+One deliberate exception to "no cross-lane imports": prompt text and artifact
+parsing are not swappable adapters — there is exactly one artifact format, and
+Lane C owns the schema (``prompts/``), the writer (``sessions/research.py``) and
+the reader (``sessions/artifact.py``). ``start``/``prepare_pr`` import those
+directly instead of keeping a second copy that can drift out of step.
 
 The pipeline is deliberately **UI-free**: human-facing progress/warnings go through
 an injected ``on_event`` callback (the CLI wires it to a Rich console; tests capture
@@ -124,10 +130,20 @@ class Pipeline:
         ctx = PipelineContext(issue=issue, branch=branch)
 
         # Research session writes the artifact; we read it back.
+        # Prompt text and artifact parsing come from Lane C, not from local
+        # copies: prompts/research.md carries the artifact schema, grounding
+        # rules and lane guardrails, and sessions/artifact.py is the reader that
+        # matches that schema. Imports are function-local so this module still
+        # imports cleanly if sessions/ is absent.
+        from .sessions.artifact import load_artifact
+        from .sessions.research import build_research_prompt
+
         artifact_path = self._artifact_path(branch)
-        artifact_path.parent.mkdir(parents=True, exist_ok=True)
-        self.research.run(_research_prompt(issue, branch, artifact_path))
-        ctx.artifact = self._read_artifact(issue, branch, artifact_path)
+        prompt_file = build_research_prompt(issue, branch.name, root=self.workdir)
+        self.research.run(prompt_file.read_text(encoding="utf-8"))
+        ctx.artifact = load_artifact(
+            branch.name, issue_id=issue.id, root=self.workdir
+        ) or Artifact(path=str(artifact_path), issue_id=issue.id, branch=branch.name)
 
         # Now that modules are known, warn on any in-flight overlap (non-blocking).
         self._warn_on_conflicts(ctx.artifact)
@@ -138,7 +154,10 @@ class Pipeline:
         })
 
         # Implementation session works through the artifact.
-        self.impl.run(_impl_prompt(artifact_path))
+        from .sessions.impl import build_impl_prompt
+
+        prompt_file = build_impl_prompt(branch.name, root=self.workdir)
+        self.impl.run(prompt_file.read_text(encoding="utf-8"))
         self._event("implementation session finished")
         if self.local_git:
             self._commit_and_push(branch, issue)
@@ -152,14 +171,25 @@ class Pipeline:
         if ctx.branch is None:
             raise PipelineError("prepare_pr called before a branch exists.")
 
+        from .sessions.impl import build_autofix_prompt
+
         ctx.checks = self.checks.run_all()
-        attempts = self.config.autofix_retries if autofix else 0
-        while _any_failed(ctx.checks) and attempts > 0:
-            attempts -= 1
+        # Counts up rather than down: build_autofix_prompt renders "attempt N of
+        # M" into the prompt, so the agent knows how much budget is left.
+        max_attempts = self.config.autofix_retries if autofix else 0
+        attempt = 1
+        while _any_failed(ctx.checks) and attempt <= max_attempts:
             failed = [c for c in ctx.checks if not c.passed]
-            self._event(f"checks failed ({_names(failed)}); autofix retry, {attempts} left")
-            self.impl.run(_fix_prompt(self._artifact_path(ctx.branch), failed))
+            self._event(
+                f"checks failed ({_names(failed)}); autofix attempt {attempt}/{max_attempts}"
+            )
+            prompt_file = build_autofix_prompt(
+                ctx.branch.name, ctx.checks,
+                attempt=attempt, max_attempts=max_attempts, root=self.workdir,
+            )
+            self.impl.run(prompt_file.read_text(encoding="utf-8"))
             ctx.checks = self.checks.run_all()
+            attempt += 1
 
         if _any_failed(ctx.checks):
             still_failing = _names([c for c in ctx.checks if not c.passed])
@@ -217,16 +247,6 @@ class Pipeline:
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"
 
-    def _read_artifact(self, issue: Issue, branch: BranchRef, path: Path) -> Artifact:
-        raw = path.read_text(encoding="utf-8") if path.is_file() else ""
-        return Artifact(
-            path=str(path),
-            issue_id=issue.id,
-            branch=branch.name,
-            raw=raw,
-            modules_affected=_parse_modules(raw),
-        )
-
     def _warn_on_conflicts(self, artifact: Artifact) -> None:
         if self.mesh is None:
             return
@@ -264,47 +284,11 @@ def _default_pr_description(ctx: PipelineContext) -> str:
     return "\n".join(lines)
 
 
-def _research_prompt(issue: Issue, branch: BranchRef, artifact_path: Path) -> str:
-    return (
-        f"You are the research session for task {issue.id}: {issue.title}.\n"
-        f"{issue.description}\n\n"
-        "Read the relevant files, understand existing patterns, and identify risks. "
-        f"Then write a structured artifact to {artifact_path} with sections: "
-        "Context, Sub-tasks, Files to Create/Modify, Acceptance Criteria, "
-        "Implementation Notes. List each affected module path under 'Files to "
-        "Create/Modify' so the team can detect conflicts."
-    )
-
-
-def _impl_prompt(artifact_path: Path) -> str:
-    return (
-        f"Read the artifact at {artifact_path} and implement every sub-task. "
-        "Check off each item as you complete it and keep changes within the files "
-        "the artifact names."
-    )
-
-
-def _fix_prompt(artifact_path: Path, failed: list) -> str:
-    detail = "\n".join(f"- {c.tool}: {c.output.strip()[:500]}" for c in failed)
-    return (
-        f"The quality checks failed after implementing {artifact_path}:\n{detail}\n\n"
-        "Fix the code so all checks pass. Do not change unrelated files."
-    )
-
-
-def _parse_modules(raw: str) -> tuple[str, ...]:
-    """Best-effort: pull file paths out of the artifact's 'Files' section.
-
-    Kept intentionally simple — the artifact file itself stays authoritative for
-    the implementation session; this is only for conflict detection.
-    """
-    modules: list[str] = []
-    for line in raw.splitlines():
-        stripped = line.strip().lstrip("-*[ ]xX").strip()
-        token = stripped.strip("`").split(" ")[0].split("—")[0].strip("` ")
-        if "/" in token and "." in token and token not in modules:
-            modules.append(token)
-    return tuple(modules)
+# _research_prompt / _impl_prompt / _fix_prompt / _parse_modules used to live
+# here. They were written before Lane C existed and are now deleted rather than
+# kept as a second implementation: prompts/ + sessions/artifact.py are the
+# canonical ones, and the duplicate parser disagreed about what a "module" is
+# (full path vs. top-level package), which the mesh keys conflict detection on.
 
 
 def _primary_module(branch: BranchRef) -> str:

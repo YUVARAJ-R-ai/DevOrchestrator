@@ -189,3 +189,20 @@ def test_build_pipeline_constructs_real_adapters_for_github(
     assert isinstance(pipeline.impl, ClaudeSession)
     assert isinstance(pipeline.checks, SubprocessCheckRunner)
     assert pipeline.mesh is None  # no SUPABASE_SERVICE_KEY set
+
+
+def test_build_pipeline_enables_local_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """local_git must be on: create_branch() only makes a *remote* ref.
+
+    Without it nothing checks out the new branch, nothing commits, and open_pr()
+    opens a PR with zero commits. A merge silently dropped this flag once
+    (7ebf5e2), which is why it is asserted rather than assumed.
+    """
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    monkeypatch.setenv("GIT_TOKEN", "t")
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    assert build_pipeline(config).local_git is True

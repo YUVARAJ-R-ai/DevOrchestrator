@@ -413,5 +413,10 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         ),
         workdir=workdir,
         on_event=on_event,
+        # Required, not optional: create_branch() only makes a remote ref via the
+        # GitHub API. Without local_git the sessions edit whatever branch was
+        # already checked out, nothing commits, and open_pr() opens an empty PR.
+        # A merge silently dropped this once (7ebf5e2) — test_build_pipeline_
+        # enables_local_git guards it now.
         local_git=True,
     )

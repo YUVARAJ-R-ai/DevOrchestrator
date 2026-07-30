@@ -180,6 +180,27 @@ def _tmux_name(branch: str) -> str:
     return branch.replace("/", "-").replace(".", "-").replace(":", "-")
 
 
+def _set_remain_on_exit(window) -> None:
+    """Keep a finished pane on screen instead of letting it vanish.
+
+    Best-effort across libtmux versions — the option name moved between
+    ``set_window_option`` and ``set_option``, and losing it only costs pane
+    persistence, never correctness (completion is tracked by sentinel file).
+    """
+    for attempt in (
+        # Modern libtmux first; set_window_option is deprecated but is the only
+        # spelling on older releases, and raw tmux works whatever the bindings do.
+        lambda: window.set_option("remain-on-exit", "on"),
+        lambda: window.set_window_option("remain-on-exit", "on"),
+        lambda: window.cmd("set-option", "-w", "remain-on-exit", "on"),
+    ):
+        try:
+            attempt()
+            return
+        except Exception:  # noqa: BLE001 — try the next spelling
+            continue
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -259,18 +280,22 @@ class TmuxRunner:
         window_name = f"{state.kind.value}-{_tmux_name(self.branch)}"
 
         if self._tmux_session is None:
-            self._tmux_session = self._server.new_session(
-                session_name=self.session_name,
-                start_directory=str(self.cwd),
-                window_name=window_name,
-                attach=False,
-                kill_session=True,
-            )
+            # Reuse the branch's session if it already exists, so research and
+            # impl windows accumulate and a dev who attaches sees the whole
+            # task. Creating with kill_session=True would discard the research
+            # pane the moment implementation starts.
+            self._tmux_session = self._attach_or_create(window_name)
             window = self._tmux_session.active_window
+            if window.window_name != window_name:
+                window = self._new_window(window_name)
         else:
-            window = self._tmux_session.new_window(
-                window_name=window_name, start_directory=str(self.cwd), attach=False
-            )
+            window = self._new_window(window_name)
+
+        # Panes are exec'd, so they die the instant the agent exits — taking
+        # their output, and the whole session, with them. remain-on-exit keeps
+        # the finished pane on screen holding its final output, which is the
+        # entire point of running visibly.
+        _set_remain_on_exit(window)
 
         # bash -o pipefail so PIPESTATUS is meaningful whatever the login shell.
         window.active_pane.send_keys(f"exec bash -o pipefail -c {shlex.quote(command)}", enter=True)
@@ -280,6 +305,25 @@ class TmuxRunner:
         console.print(
             f"[cyan]›[/cyan] {state.name} running in tmux — "
             f"watch it: [bold]tmux attach -t {self.session_name}[/bold]"
+        )
+
+    def _attach_or_create(self, window_name: str):
+        """Return the branch's tmux session, creating it only if absent."""
+        try:
+            if self._server.has_session(self.session_name):
+                return self._server.sessions.get(session_name=self.session_name)
+        except Exception:  # noqa: BLE001 — a lookup failure just means "create it"
+            pass
+        return self._server.new_session(
+            session_name=self.session_name,
+            start_directory=str(self.cwd),
+            window_name=window_name,
+            attach=False,
+        )
+
+    def _new_window(self, window_name: str):
+        return self._tmux_session.new_window(
+            window_name=window_name, start_directory=str(self.cwd), attach=False
         )
 
     def _spawn_headless(self, command: str, state: SessionState) -> None:

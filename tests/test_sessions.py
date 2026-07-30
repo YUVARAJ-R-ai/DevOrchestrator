@@ -7,6 +7,8 @@ logic is exercised either way.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from devorchestrator import prompts
@@ -25,6 +27,7 @@ from devorchestrator.sessions.tmux_runner import (
     TmuxRunner,
     artifact_path,
     claude_command,
+    tmux_available,
     work_dir,
 )
 
@@ -246,3 +249,58 @@ def test_run_impl_fails_clearly_without_an_artifact(tmp_path):
 def test_tmux_session_name_is_sanitized(branch, expected, tmp_path):
     """tmux rejects dots and handles slashes awkwardly."""
     assert TmuxRunner(branch=branch, root=tmp_path).session_name == expected
+
+
+# ---------------------------------------------------------------------------
+# Real tmux — the demo path. Skipped where tmux or the [agent] extra is absent.
+# ---------------------------------------------------------------------------
+
+needs_tmux = pytest.mark.skipif(not tmux_available(), reason="tmux / libtmux not installed")
+
+
+@needs_tmux
+def test_finished_pane_stays_visible(tmp_path):
+    """Panes are exec'd, so without remain-on-exit they vanish the instant the
+    agent exits — taking the output a watching dev came to see."""
+    branch = "feature/issue-8-remain"
+    runner = TmuxRunner(branch=branch, cwd=tmp_path, root=tmp_path)
+    try:
+        state = runner.wait(
+            runner.spawn(SessionKind.research, "echo agent-output-to-keep"),
+            timeout=30,
+            poll=0.1,
+        )
+        assert state.ok
+
+        pane = subprocess.run(
+            ["tmux", "capture-pane", "-p", "-t", f"{runner.session_name}:{state.tmux_window}"],
+            capture_output=True,
+            text=True,
+        )
+        assert pane.returncode == 0, "window disappeared after the command finished"
+        assert "agent-output-to-keep" in pane.stdout
+    finally:
+        runner.kill()
+
+
+@needs_tmux
+def test_second_session_reuses_the_branch_session_and_keeps_history(tmp_path):
+    """Research and impl windows must accumulate: a dev attaches once and sees
+    the whole task, rather than impl discarding the research pane."""
+    branch = "feature/issue-8-history"
+    research = TmuxRunner(branch=branch, cwd=tmp_path, root=tmp_path)
+    impl = TmuxRunner(branch=branch, cwd=tmp_path, root=tmp_path)
+    try:
+        research.wait(research.spawn(SessionKind.research, "echo one"), timeout=30, poll=0.1)
+        impl.wait(impl.spawn(SessionKind.impl, "echo two"), timeout=30, poll=0.1)
+
+        listed = subprocess.run(
+            ["tmux", "list-windows", "-t", research.session_name, "-F", "#{window_name}"],
+            capture_output=True,
+            text=True,
+        )
+        windows = listed.stdout.split()
+        assert any(w.startswith("research-") for w in windows), windows
+        assert any(w.startswith("impl-") for w in windows), windows
+    finally:
+        research.kill()

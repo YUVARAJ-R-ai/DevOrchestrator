@@ -20,7 +20,7 @@ import yaml
 from rich.console import Console
 
 from . import __version__
-from .config import Config, ConfigError, load_config
+from .config import CONFIG_FILENAME, Config, ConfigError, load_config
 from .pipeline import LanePending, PipelineAborted, PipelineError, build_pipeline
 from .review import build_review
 

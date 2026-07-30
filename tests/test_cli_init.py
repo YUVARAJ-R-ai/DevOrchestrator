@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from devorchestrator.cli import (
+    _looks_like_placeholder,
     _required_env_vars,
     _scaffold_env,
     _scaffold_yaml,
@@ -115,11 +116,11 @@ def test_scaffold_env_prompts_for_every_var_even_if_already_set(
     assert "OPENROUTER_API_KEY=a-real-token" in content
 
 
-def test_scaffold_env_blank_answer_keeps_the_existing_value(
+def test_scaffold_env_blank_answer_keeps_a_real_existing_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env_path = tmp_path / ".env"
-    env_path.write_text("GITHUB_TOKEN=already-set\n", encoding="utf-8")
+    env_path.write_text("GITHUB_TOKEN=ghp_realtoken\n", encoding="utf-8")
     original_mtime = env_path.stat().st_mtime_ns
 
     monkeypatch.setattr("typer.prompt", lambda *a, **kw: "")  # user just presses Enter
@@ -127,7 +128,48 @@ def test_scaffold_env_blank_answer_keeps_the_existing_value(
     _scaffold_env(env_path, [("GITHUB_TOKEN", "GitHub token", True, "")])
 
     assert env_path.stat().st_mtime_ns == original_mtime  # kept, file untouched
-    assert "GITHUB_TOKEN=already-set" in env_path.read_text(encoding="utf-8")
+    assert "GITHUB_TOKEN=ghp_realtoken" in env_path.read_text(encoding="utf-8")
+
+
+def test_scaffold_env_blank_answer_does_not_keep_a_placeholder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The actual live trap: a placeholder value + Enter must NOT be preserved —
+    it falls back to the default (empty), so a later connection test / config
+    check surfaces it rather than silently trusting junk."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("GITHUB_TOKEN=REPLACE_ME_WITH_A_REAL_TOKEN\n", encoding="utf-8")
+
+    monkeypatch.setattr("typer.prompt", lambda *a, **kw: "")  # user presses Enter
+
+    _scaffold_env(env_path, [("GITHUB_TOKEN", "GitHub token", True, "")])
+
+    # placeholder replaced with the empty default, not kept
+    assert "REPLACE_ME" not in env_path.read_text(encoding="utf-8")
+
+
+def test_looks_like_placeholder() -> None:
+    assert _looks_like_placeholder("REPLACE_ME_WITH_A_REAL_TOKEN")
+    assert _looks_like_placeholder("your_token_here")
+    assert _looks_like_placeholder("ghp_xxxxxxxx")
+    assert _looks_like_placeholder("<paste-here>")
+    assert not _looks_like_placeholder("ghp_1a2b3c4d5e6f7g8h9i0j")
+    assert not _looks_like_placeholder("")
+
+
+def test_github_connection_flags_placeholder_token(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "REPLACE_ME_WITH_A_REAL_TOKEN")
+
+    def fail_if_called(*a, **kw):
+        raise AssertionError("should not hit the network for an obvious placeholder")
+
+    monkeypatch.setattr("devorchestrator.cli.httpx.get", fail_if_called)
+
+    _test_github_connection(_config())
+
+    assert "placeholder" in capsys.readouterr().out.lower()
 
 
 def _config(**board_overrides) -> Config:

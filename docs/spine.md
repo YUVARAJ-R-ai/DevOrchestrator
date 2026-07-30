@@ -235,6 +235,7 @@ class Mesh(Protocol):
     def emit(self, event_type: str, module: str, payload: dict) -> None: ...
     def who_is_touching(self, module: str) -> list[DevActivity]: ...
     def recent_decisions(self, limit: int = 10) -> list[Decision]: ...
+    def list_modules(self) -> list[str]: ...
 ```
 
 **`Notifier`** — Lane D (Mattermost / Teams webhook):
@@ -292,7 +293,10 @@ class NotifyConfig(_Strict):
     webhook_env: str
 
 class MeshConfig(_Strict):
-    db_path: str = ".orchestrator/mesh.db"
+    # Supabase/Postgres connection (Lane D's mesh backend — see mesh/store.py's
+    # SupabaseMesh). supabase_key_env names the env var holding the service key.
+    supabase_url: str = ""
+    supabase_key_env: str = ""
 ```
 
 **Every field ending in `_env` holds an environment variable *name*, never a
@@ -581,6 +585,7 @@ class MyMesh:
     def emit(self, event_type: str, module: str, payload: dict) -> None: ...
     def who_is_touching(self, module: str) -> list[DevActivity]: ...
     def recent_decisions(self, limit: int = 10) -> list[Decision]: ...
+    def list_modules(self) -> list[str]: ...
 ```
 
 **`Notifier`** (Lane D):

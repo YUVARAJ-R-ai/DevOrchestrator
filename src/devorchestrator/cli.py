@@ -150,7 +150,9 @@ def pr(
     from .checks.runner import SubprocessCheckRunner
     if autofix_on:
         from .checks.autofix import autofix as _autofix
-        results = _autofix(SubprocessCheckRunner(all_checks=all_checks))
+        results = _autofix(
+            SubprocessCheckRunner(all_checks=all_checks), max_retries=config.autofix_retries
+        )
     else:
         runner = SubprocessCheckRunner(all_checks=all_checks)
         results = runner.run_all()

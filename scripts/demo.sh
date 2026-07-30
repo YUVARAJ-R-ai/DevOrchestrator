@@ -43,53 +43,20 @@ echo "  (watch the tmux panes: tmux attach -t do-<branch>)"
 echo
 
 uv run python - <<'PYEOF'
-import os
 import sys
 
-from devorchestrator.checks.runner import SubprocessCheckRunner
 from devorchestrator.config import load_config
-from devorchestrator.integrations.github_board import GithubBoard
-from devorchestrator.integrations.github_git import GithubGit
-from devorchestrator.pipeline import Pipeline, PipelineAborted, PipelineError
-from devorchestrator.pr_description import generate_pr_description
-from devorchestrator.review import ReviewGate
-from devorchestrator.sessions.tmux_runner import ClaudeSession, SessionKind
+from devorchestrator.pipeline import PipelineAborted, PipelineError, build_pipeline
+from devorchestrator.review import build_review
 
 config = load_config()
 
-board = GithubBoard(
-    url=config.board.url,
-    token=os.environ[config.board.token_env],
-    dev_name=config.name,
-    project_number=config.board.project_number,
-)
-git = GithubGit(
-    url=config.git.url,
-    token=os.environ[config.git.token_env],
-    reviewer=os.environ.get("DEMO_REVIEWER"),
-)
-research = ClaudeSession(SessionKind.research, agent=config.agent.value)
-impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
-checks = SubprocessCheckRunner()
-
-mesh = None
-key = os.environ.get(config.mesh.supabase_key_env, "")
-if config.mesh.supabase_url and key:
-    from devorchestrator.mesh.store import SupabaseMesh, create_supabase_client
-
-    mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
-
-pipeline = Pipeline(
-    config,
-    board=board,
-    git=git,
-    research=research,
-    impl=impl,
-    checks=checks,
-    mesh=mesh,
-    describe_pr=lambda ctx: generate_pr_description(ctx.branch.name, base=ctx.branch.base),
-    on_event=lambda m: print(f"› {m}"),
-)
+# Built by the same factories the real CLI uses, deliberately: this script used
+# to construct Pipeline/ReviewGate by hand, and drifted out of step with them —
+# it was missing local_git=True (so it would have opened a PR with no commits)
+# and the brain's config= argument. A scripted fallback that behaves differently
+# from the thing it's a fallback for is worse than no fallback.
+pipeline = build_pipeline(config, on_event=lambda m: print(f"› {m}"))
 
 
 def pick_demo_issue(issues):
@@ -113,7 +80,7 @@ except PipelineError as exc:
 print(f"\n✓ PR opened: {ctx.pull_request.url}")
 print("\n── TL approval gate — the human moment ─────────────────────────")
 
-gate = ReviewGate(config, git=git, mesh=mesh)
+gate = build_review(config)
 gate.review_pr(ctx.pull_request, ctx.checks, ctx.artifact)
 
 choice = input("\n[a] approve & merge   [r] reject   [q] quit: ").strip().lower()

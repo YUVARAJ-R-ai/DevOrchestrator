@@ -1,4 +1,4 @@
-# Known Gaps — DevOrchestrator (as of 2026-07-30, post-Wave-3 wiring)
+# Known Gaps — DevOrchestrator (as of 2026-07-30, post-Wave-3 + Spine follow-up)
 
 This is an honest inventory of everything that's **not** finished, discovered while verifying the system end-to-end for the hackathon demo. None of these block the demo (the critical one — Wave-3 wiring never existing — is already fixed, see below), but all of them are real and worth knowing before anyone extends this beyond the hackathon.
 
@@ -15,6 +15,19 @@ Severity key: 🔴 would break a real run · 🟡 works but is a known limitatio
 - 🟡 **`build_pipeline`/`build_review` would misconstruct a `GithubBoard`/`GithubGit` for a non-GitHub config** (e.g. `board.type: plane`), since they unconditionally imported the GitHub adapters regardless of configured type — would have thrown a confusing `ValueError` from URL parsing instead of a clear "not implemented" message. **Fixed** with an explicit type guard.
 - 🔴 **`devorchestrator init` never scaffolded anything or tested a real connection** — it just validated a config that had to already exist, despite the README promising "tests all connections, registers in the mesh, done." Confirmed by hand: a fresh checkout with no `devOrchestrator.yaml` failed immediately with "no devOrchestrator.yaml found," and even a valid config never made a single test request to the board/git API. **Fixed**: `init` now interactively scaffolds `devOrchestrator.yaml` (prompting for name/repo URL/project number/mesh) and `.env` (prompting only for whatever token/webhook vars the config actually references, skipping ones already set) if they don't exist, then makes a real `GET /user` + `GET /repos/{owner}/{repo}` call to confirm the GitHub token is valid and can see the configured repo — not just that the field is non-empty.
 
+### Fixed in the follow-up Spine pass (Lane A)
+
+- 🔴 **Three regressions from merge commit `7ebf5e2` ("Merge branch 'main' into dev"), which resolved four files by taking the older side.** All three shipped to `main` via PR #41 before being spotted:
+  - `cli.py` lost `CONFIG_FILENAME` from its import while keeping two call sites — **`devorchestrator init` died with `NameError` before printing anything**, and `ruff` failed with 2× F821. The first command a new user runs.
+  - `build_pipeline` lost `local_git=True` — no local checkout, no commit, no push, so `open_pr()` opened a PR identical to base. Exactly the bug PR #36 had just fixed.
+  - The brain wiring lost `openai` from core deps and `config=` at both `generate_pr_description` call sites — the brain silently never ran, always degrading to the mechanical description with no error to notice.
+  **Fixed**, each with a regression test (`test_build_pipeline_enables_local_git`, `test_describe_pr_forwards_config_to_the_brain`) — none of the three had any assertion covering it, which is why a merge could drop them silently.
+- 🔴 **`devorchestrator pr`'s `--autofix` did nothing.** It called `checks/autofix.py`, which prints "fixing <tool> failure..." and "→ re-invoke impl session" and then just re-runs the same checks — its own TODO admits the re-invoke was never implemented. So autofix looked like it worked, consumed its retry budget, and changed no code. **Fixed**: `pr` now runs through `Pipeline.prepare_pr`, whose loop actually re-invokes the implementation session with `prompts/autofix.md`.
+- 🟡 **`pipeline.py` carried a duplicate prompt set and module parser** predating Lane C's `sessions/`. Not just redundancy: `pipeline._parse_modules` returned full paths (`src/devorchestrator/widget.py`) while `ParsedArtifact.touched_modules` returns top-level modules (`devorchestrator`), and both fed the same `module` key that `mesh.who_is_touching()` keys conflict detection on — so overlap detection compared two different granularities depending on the code path. **Fixed**: the duplicates are deleted; `prompts/` + `sessions/artifact.py` are canonical.
+- 🟡 **No persisted `PipelineContext` between `start` and `pr`**, so `pr` reconstructed an approximate issue title from the branch slug by regex. **Fixed**: `start()` writes `.orchestrator/{branch}/context.json`; `pr` loads it and uses the real issue title. The artifact is deliberately re-read from `artifact.md` rather than stored, so an artifact edited between the two commands is the one used.
+- 🟡 **`move_issue` was implemented and tested but never called** — the board's Status column never moved on its own. **Fixed**: `in_progress` once the branch exists, `in_review` once the PR is open. Failures are reported and swallowed; an unreachable board must not discard a finished implementation.
+- 🟡 **`test_lane_c_pipeline.py`'s fake-agent fixture keyed off `"implement every sub-task"`** — wording from `pipeline.py`'s inline prompt, not from `prompts/impl.md` — so it silently stopped ticking checkboxes the moment the real template was used. **Fixed** to key off `"implementation session"`.
+
 ---
 
 ## Open gaps
@@ -24,15 +37,6 @@ Severity key: 🔴 would break a real run · 🟡 works but is a known limitatio
 
 ### 🟡 `devs` table exists in `schema.sql` but is never written to
 `SupabaseMesh` (`mesh/store.py`) has no method that writes to the `devs` table — `devorchestrator init`'s "register in mesh" only inserts a `dev_joined` row into `events`. The `devs` table is dead schema right now; the dev roster shown anywhere would need to be derived from distinct `dev` values in `events`, not a real roster table.
-
-### 🟡 PR title in `devorchestrator pr` is derived from the branch slug, not the real issue title
-`cli.py`'s `pr` command reconstructs the issue title from the branch name (`feature/issue-N-slug` → `"issue #N: slug words"`) rather than fetching the actual GitHub issue title. This is because `devorchestrator start` and `devorchestrator pr` run as **separate processes** (by design — the human reviews code in between) and `pr` has no persisted `PipelineContext` to read from. Functional, but the PR title may read slightly differently than the issue title if the branch slug truncated or altered words.
-
-### 🟡 No persisted `PipelineContext` between `start` and `pr`
-Related to the above: `Pipeline.prepare_pr()` (the method) expects a full `PipelineContext` (issue, branch, artifact), but `devorchestrator pr` (the CLI command) doesn't have one — it reconstructs only what it needs (branch name, issue ID) from `git rev-parse` and regex. This works for the current flow but means `pr` can't do anything that needs the original `Issue`/`Artifact` objects (e.g., re-checking acceptance criteria against the artifact). A `.orchestrator/{branch}/context.json` persisted at the end of `start` would close this gap.
-
-### 🟡 `move_issue` (board Status column updates) is implemented but never called
-`GithubBoard.move_issue()` (moving an issue between Backlog/Ready/In Progress/etc. on the Project board) is fully implemented and tested, but **nothing in `pipeline.py` or `cli.py` ever calls it**. The board's Status column doesn't move automatically as a task progresses through the pipeline — someone still has to update it by hand (as has been done manually throughout this hackathon).
 
 ### 🟡 Account rotation / rate-limit handling doesn't exist
 If the `claude` CLI hits a rate limit mid-session, there's no automatic account rotation or retry-with-backoff (this was always Sprint-4/post-MVP scope, never built). A rate limit mid-demo means the session fails; the only mitigation is `docs/DEMO.md`'s fallback plan (pre-recorded backup video).
@@ -58,5 +62,5 @@ This is tharun's personal config, committed to the repo, still targeting the pre
 
 - The core loop (`Pipeline.start()` → `prepare_pr()`, `ReviewGate`) has real test coverage: 162 tests passing, including a real-tmux integration test (skipped only when tmux isn't installed) and a real end-to-end run against a stand-in agent binary.
 - Every adapter (`GithubBoard`, `GithubGit`, `SupabaseMesh`, `SubprocessCheckRunner`, `ClaudeSession`) is independently unit-tested with mocked transports, not just exercised through the pipeline.
-- The autofix retry loop, conflict detection, and PR-description generation are all real, tested code paths — not stubs.
+- The autofix retry loop, conflict detection, and PR-description generation are all real, tested code paths — not stubs. (This was previously claimed while `devorchestrator pr` still ran the `checks/autofix.py` stub instead; it is true now that `pr` goes through `Pipeline.prepare_pr`. `checks/autofix.py` itself is still a no-op and is no longer on any live path — it should be deleted or given a real re-invoke callback.)
 - Config validation fails loud with actionable hints (missing env vars, mismatched board/git track) rather than failing silently mid-run.

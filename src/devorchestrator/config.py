@@ -98,6 +98,15 @@ class GitConfig(_Strict):
     type: GitType
     url: str
     token_env: str = Field(description="Name of the env var holding the git server token.")
+    reviewer: str | None = Field(
+        default=None,
+        description=(
+            "Git host *login* (e.g. 'Haise-727') to request review from on every PR. "
+            "Distinct from Config.name, which is a display name used for mesh events "
+            "and notifications — GitHub matches requested reviewers by login, so "
+            "`devorchestrator review` finds nothing if this is unset or wrong."
+        ),
+    )
 
 
 class BrainConfig(_Strict):

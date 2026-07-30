@@ -15,6 +15,9 @@ git:
   type: github         # gitea | azure_repos | github  (must match board's track)
   url: https://github.com/YUVARAJ-R-ai/DevOrchestrator   # FILL IN — your repo
   token_env: GITHUB_TOKEN
+  reviewer: Haise-727   # FILL IN — GitHub *login* to request review from.
+                        # `devorchestrator review` lists PRs awaiting this login;
+                        # it is not the same thing as `name:` above.
 
 brain:                 # optional — external LLM for PR descriptions
   provider: openrouter

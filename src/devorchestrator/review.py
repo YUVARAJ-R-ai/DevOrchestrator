@@ -67,8 +67,15 @@ class ReviewGate:
     # -- fetching ---------------------------------------------------------
 
     def open_prs(self) -> list[PullRequest]:
-        """PRs awaiting this reviewer (the TL). Empty list if none."""
-        return self.git.list_open_prs(assignee=self.config.name)
+        """PRs awaiting this reviewer (the TL). Empty list if none.
+
+        Filters on ``git.reviewer`` — the git-host login — not ``config.name``,
+        which is a display name. GitHub's requested-reviewer list holds logins,
+        so filtering by display name matches nothing. With no reviewer
+        configured, every open PR is listed rather than none: an unfiltered list
+        is recoverable, an empty one just looks like there is no work.
+        """
+        return self.git.list_open_prs(assignee=self.config.git.reviewer)
 
     def review_pr(self, pr: PullRequest, checks: list[CheckResult],
                   artifact: Artifact | None = None) -> None:
@@ -191,6 +198,9 @@ def build_review(config: Config, *, console: Console | None = None) -> ReviewGat
     git = GithubGit(
         url=config.git.url,
         token=os.environ[config.git.token_env],
+        # Requests review from this login on every PR — without it nothing is
+        # ever "awaiting review" and `devorchestrator review` lists nothing.
+        reviewer=config.git.reviewer,
     )
 
     mesh = None

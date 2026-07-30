@@ -1,13 +1,19 @@
 """The orchestration backbone — the SDLC loop expressed against `contracts`.
 
 This is Lane A's ``pipeline.py``. It runs the loop from ``docs/research.md`` (task
-→ branch → research → artifact → implement → checks → PR) **entirely against the
-frozen `contracts.py` Protocols**. No stage imports another lane's internals; every
-boundary is dependency-injected, so:
+→ branch → research → artifact → implement → checks → PR) **against the frozen
+`contracts.py` Protocols** for every swappable adapter (board / git / session /
+checks / mesh / notifier). Those boundaries are dependency-injected, so:
 
 - unit tests drive the whole loop with in-memory fakes (see tests/test_pipeline.py),
-- Wave-3 integration swaps in the real Lane B/C/D adapters via :func:`build_pipeline`
-  with **zero changes** to the orchestration logic below.
+- :func:`build_pipeline` swaps in the real Lane B/C/D adapters with **zero
+  changes** to the orchestration logic below.
+
+One deliberate exception to "no cross-lane imports": prompt text and artifact
+parsing are not swappable adapters — there is exactly one artifact format, and
+Lane C owns the schema (``prompts/``), the writer (``sessions/research.py``) and
+the reader (``sessions/artifact.py``). ``start``/``prepare_pr`` import those
+directly instead of keeping a second copy that can drift out of step.
 
 The pipeline is deliberately **UI-free**: human-facing progress/warnings go through
 an injected ``on_event`` callback (the CLI wires it to a Rich console; tests capture
@@ -16,6 +22,7 @@ it). Rich rendering lives in the CLI and in ``review.py``, not here.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -28,6 +35,7 @@ from .contracts import (
     CheckRunner,
     GitAdapter,
     Issue,
+    IssueState,
     Mesh,
     Notifier,
     PipelineContext,
@@ -118,16 +126,27 @@ class Pipeline:
         branch = self.git.create_branch(issue, base="dev")
         if self.local_git:
             self._checkout_local(branch)
+        self._move_issue(issue.id, IssueState.in_progress)
         self._emit("task_started", module=_primary_module(branch), payload={
             "issue_id": issue.id, "title": issue.title, "branch": branch.name,
         })
         ctx = PipelineContext(issue=issue, branch=branch)
 
         # Research session writes the artifact; we read it back.
+        # Prompt text and artifact parsing come from Lane C, not from local
+        # copies: prompts/research.md carries the artifact schema, grounding
+        # rules and lane guardrails, and sessions/artifact.py is the reader that
+        # matches that schema. Imports are function-local so this module still
+        # imports cleanly if sessions/ is absent.
+        from .sessions.artifact import load_artifact
+        from .sessions.research import build_research_prompt
+
         artifact_path = self._artifact_path(branch)
-        artifact_path.parent.mkdir(parents=True, exist_ok=True)
-        self.research.run(_research_prompt(issue, branch, artifact_path))
-        ctx.artifact = self._read_artifact(issue, branch, artifact_path)
+        prompt_file = build_research_prompt(issue, branch.name, root=self.workdir)
+        self.research.run(prompt_file.read_text(encoding="utf-8"))
+        ctx.artifact = load_artifact(
+            branch.name, issue_id=issue.id, root=self.workdir
+        ) or Artifact(path=str(artifact_path), issue_id=issue.id, branch=branch.name)
 
         # Now that modules are known, warn on any in-flight overlap (non-blocking).
         self._warn_on_conflicts(ctx.artifact)
@@ -138,10 +157,16 @@ class Pipeline:
         })
 
         # Implementation session works through the artifact.
-        self.impl.run(_impl_prompt(artifact_path))
+        from .sessions.impl import build_impl_prompt
+
+        prompt_file = build_impl_prompt(branch.name, root=self.workdir)
+        self.impl.run(prompt_file.read_text(encoding="utf-8"))
         self._event("implementation session finished")
         if self.local_git:
             self._commit_and_push(branch, issue)
+        # `devorchestrator pr` runs as a separate process (the human reviews the
+        # code in between), so the issue/branch it needs has to survive on disk.
+        save_pipeline_context(ctx, root=self.workdir)
         return ctx
 
     def prepare_pr(self, ctx: PipelineContext, *, autofix: bool = True) -> PipelineContext:
@@ -152,14 +177,25 @@ class Pipeline:
         if ctx.branch is None:
             raise PipelineError("prepare_pr called before a branch exists.")
 
+        from .sessions.impl import build_autofix_prompt
+
         ctx.checks = self.checks.run_all()
-        attempts = self.config.autofix_retries if autofix else 0
-        while _any_failed(ctx.checks) and attempts > 0:
-            attempts -= 1
+        # Counts up rather than down: build_autofix_prompt renders "attempt N of
+        # M" into the prompt, so the agent knows how much budget is left.
+        max_attempts = self.config.autofix_retries if autofix else 0
+        attempt = 1
+        while _any_failed(ctx.checks) and attempt <= max_attempts:
             failed = [c for c in ctx.checks if not c.passed]
-            self._event(f"checks failed ({_names(failed)}); autofix retry, {attempts} left")
-            self.impl.run(_fix_prompt(self._artifact_path(ctx.branch), failed))
+            self._event(
+                f"checks failed ({_names(failed)}); autofix attempt {attempt}/{max_attempts}"
+            )
+            prompt_file = build_autofix_prompt(
+                ctx.branch.name, ctx.checks,
+                attempt=attempt, max_attempts=max_attempts, root=self.workdir,
+            )
+            self.impl.run(prompt_file.read_text(encoding="utf-8"))
             ctx.checks = self.checks.run_all()
+            attempt += 1
 
         if _any_failed(ctx.checks):
             still_failing = _names([c for c in ctx.checks if not c.passed])
@@ -171,6 +207,7 @@ class Pipeline:
         self._emit("pr_opened", module=_primary_module(ctx.branch), payload={
             "branch": ctx.branch.name, "pr_url": pr.url, "pr_number": pr.number,
         })
+        self._move_issue(ctx.issue.id, IssueState.in_review)
         self._notify(f"PR ready: {ctx.issue.title} — {pr.url}")
         self._event(f"opened PR #{pr.number}: {pr.url}")
         return ctx
@@ -217,15 +254,17 @@ class Pipeline:
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"
 
-    def _read_artifact(self, issue: Issue, branch: BranchRef, path: Path) -> Artifact:
-        raw = path.read_text(encoding="utf-8") if path.is_file() else ""
-        return Artifact(
-            path=str(path),
-            issue_id=issue.id,
-            branch=branch.name,
-            raw=raw,
-            modules_affected=_parse_modules(raw),
-        )
+    def _move_issue(self, issue_id: str, state: IssueState) -> None:
+        """Advance the board's Status column, but never fail the run over it.
+
+        The board is a reporting surface here, not the source of truth — losing
+        network mid-task should not throw away a finished implementation, and
+        GithubBoard.move_issue is already a no-op when no project is configured.
+        """
+        try:
+            self.board.move_issue(issue_id, state)
+        except Exception as exc:  # noqa: BLE001 - board status is best-effort
+            self._event(f"could not move issue {issue_id} to {state.value}: {exc}")
 
     def _warn_on_conflicts(self, artifact: Artifact) -> None:
         if self.mesh is None:
@@ -251,8 +290,111 @@ class Pipeline:
 
 
 # ---------------------------------------------------------------------------
+# Cross-process context hand-off (start -> pr)
+# ---------------------------------------------------------------------------
+
+#: Written by start(), read by `devorchestrator pr`.
+CONTEXT_FILENAME = "context.json"
+
+
+def context_path(branch: str, *, root: Path | str = ".orchestrator") -> Path:
+    return Path(root) / branch / CONTEXT_FILENAME
+
+
+def save_pipeline_context(ctx: PipelineContext, *, root: Path | str = ".orchestrator") -> Path:
+    """Persist the parts of ``ctx`` that ``pr`` can't rediscover on its own.
+
+    Only the issue and branch are stored. The artifact is deliberately left out
+    and re-read from artifact.md by :func:`load_pipeline_context`, so an artifact
+    edited between the two commands is picked up rather than going stale; checks
+    and the pull request belong to the ``pr`` run itself.
+    """
+    if ctx.branch is None:
+        raise PipelineError("cannot save a context with no branch.")
+    path = context_path(ctx.branch.name, root=root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "issue": {
+                    "id": ctx.issue.id,
+                    "title": ctx.issue.title,
+                    "description": ctx.issue.description,
+                },
+                "branch": {
+                    "name": ctx.branch.name,
+                    "issue_id": ctx.branch.issue_id,
+                    "base": ctx.branch.base,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_pipeline_context(
+    branch: str, *, root: Path | str = ".orchestrator"
+) -> PipelineContext | None:
+    """Rebuild the context ``start()`` saved, or None if it isn't there / is unreadable.
+
+    Returns None rather than raising so callers can print an actionable "run
+    devorchestrator start first" instead of a traceback.
+    """
+    path = context_path(branch, root=root)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        issue_data, branch_data = data["issue"], data["branch"]
+    except (json.JSONDecodeError, KeyError, OSError):
+        return None
+
+    ctx = PipelineContext(
+        issue=Issue(
+            id=issue_data["id"],
+            title=issue_data["title"],
+            description=issue_data.get("description", ""),
+        ),
+        branch=BranchRef(
+            name=branch_data["name"],
+            issue_id=branch_data["issue_id"],
+            base=branch_data.get("base", "dev"),
+        ),
+    )
+
+    from .sessions.artifact import load_artifact
+
+    # Path(), not the raw arg: sessions.artifact does `root / branch` internally,
+    # which raises TypeError on a str root.
+    ctx.artifact = load_artifact(branch, issue_id=ctx.issue.id, root=Path(root))
+    return ctx
+
+
+# ---------------------------------------------------------------------------
 # Pure helpers (prompt templates, parsing) — no side effects, easy to test
 # ---------------------------------------------------------------------------
+
+
+def _describe_pr_for(config: Config) -> Callable[[PipelineContext], str]:
+    """The real PR-body writer: brain-written if configured, mechanical otherwise.
+
+    ``config=`` is the part that matters — without it generate_pr_description
+    can't build the brain and silently returns the mechanical description no
+    matter how the brain is configured, with no error to notice. Guarded by
+    test_describe_pr_forwards_config_to_the_brain.
+    """
+
+    def describe(ctx: PipelineContext) -> str:
+        from .pr_description import generate_pr_description, save_pr_description
+
+        body = generate_pr_description(ctx.branch.name, base=ctx.branch.base, config=config)
+        # Also kept on disk so a failed open_pr() doesn't lose the generated body.
+        save_pr_description(body, ctx.branch.name)
+        return body
+
+    return describe
 
 
 def _default_pr_description(ctx: PipelineContext) -> str:
@@ -264,47 +406,11 @@ def _default_pr_description(ctx: PipelineContext) -> str:
     return "\n".join(lines)
 
 
-def _research_prompt(issue: Issue, branch: BranchRef, artifact_path: Path) -> str:
-    return (
-        f"You are the research session for task {issue.id}: {issue.title}.\n"
-        f"{issue.description}\n\n"
-        "Read the relevant files, understand existing patterns, and identify risks. "
-        f"Then write a structured artifact to {artifact_path} with sections: "
-        "Context, Sub-tasks, Files to Create/Modify, Acceptance Criteria, "
-        "Implementation Notes. List each affected module path under 'Files to "
-        "Create/Modify' so the team can detect conflicts."
-    )
-
-
-def _impl_prompt(artifact_path: Path) -> str:
-    return (
-        f"Read the artifact at {artifact_path} and implement every sub-task. "
-        "Check off each item as you complete it and keep changes within the files "
-        "the artifact names."
-    )
-
-
-def _fix_prompt(artifact_path: Path, failed: list) -> str:
-    detail = "\n".join(f"- {c.tool}: {c.output.strip()[:500]}" for c in failed)
-    return (
-        f"The quality checks failed after implementing {artifact_path}:\n{detail}\n\n"
-        "Fix the code so all checks pass. Do not change unrelated files."
-    )
-
-
-def _parse_modules(raw: str) -> tuple[str, ...]:
-    """Best-effort: pull file paths out of the artifact's 'Files' section.
-
-    Kept intentionally simple — the artifact file itself stays authoritative for
-    the implementation session; this is only for conflict detection.
-    """
-    modules: list[str] = []
-    for line in raw.splitlines():
-        stripped = line.strip().lstrip("-*[ ]xX").strip()
-        token = stripped.strip("`").split(" ")[0].split("—")[0].strip("` ")
-        if "/" in token and "." in token and token not in modules:
-            modules.append(token)
-    return tuple(modules)
+# _research_prompt / _impl_prompt / _fix_prompt / _parse_modules used to live
+# here. They were written before Lane C existed and are now deleted rather than
+# kept as a second implementation: prompts/ + sessions/artifact.py are the
+# canonical ones, and the duplicate parser disagreed about what a "module" is
+# (full path vs. top-level package), which the mesh keys conflict detection on.
 
 
 def _primary_module(branch: BranchRef) -> str:
@@ -335,7 +441,8 @@ _REQUIRED_ADAPTERS: list[tuple[str, str, str]] = [
 
 
 def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
-                   on_event: Callable[[str], None] | None = None) -> Pipeline:
+                   on_event: Callable[[str], None] | None = None,
+                   all_checks: bool = False) -> Pipeline:
     """Construct a Pipeline wired to the real adapters for ``config``.
 
     Until Lane B/C/D land, this raises :class:`LanePending` for the first missing
@@ -373,7 +480,6 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     from .checks.runner import SubprocessCheckRunner
     from .integrations.github_board import GithubBoard
     from .integrations.github_git import GithubGit
-    from .pr_description import generate_pr_description
     from .sessions.tmux_runner import ClaudeSession, SessionKind
 
     board = GithubBoard(
@@ -385,10 +491,13 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     git = GithubGit(
         url=config.git.url,
         token=os.environ[config.git.token_env],
+        # Requests review from this login on every PR — without it nothing is
+        # ever "awaiting review" and `devorchestrator review` lists nothing.
+        reviewer=config.git.reviewer,
     )
     research = ClaudeSession(SessionKind.research, agent=config.agent.value)
     impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
-    checks = SubprocessCheckRunner()
+    checks = SubprocessCheckRunner(all_checks=all_checks)
 
     mesh = None
     mesh_key = os.environ.get(config.mesh.supabase_key_env, "")
@@ -408,10 +517,13 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         checks=checks,
         mesh=mesh,
         notifier=notifier,
-        describe_pr=lambda ctx: generate_pr_description(
-            ctx.branch.name, base=ctx.branch.base, config=config
-        ),
+        describe_pr=_describe_pr_for(config),
         workdir=workdir,
         on_event=on_event,
+        # Required, not optional: create_branch() only makes a remote ref via the
+        # GitHub API. Without local_git the sessions edit whatever branch was
+        # already checked out, nothing commits, and open_pr() opens an empty PR.
+        # A merge silently dropped this once (7ebf5e2) — test_build_pipeline_
+        # enables_local_git guards it now.
         local_git=True,
     )

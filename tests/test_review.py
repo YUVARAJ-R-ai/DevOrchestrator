@@ -5,7 +5,12 @@ from __future__ import annotations
 import io
 
 import pytest
-from conftest import (
+from rich.console import Console
+
+from devorchestrator.contracts import Artifact, MergeStrategy, PullRequest
+from devorchestrator.pipeline import LanePending
+from devorchestrator.review import ReviewGate, build_review
+from tests.conftest import (
     ARTIFACT_BODY,
     FakeGit,
     FakeMesh,
@@ -14,11 +19,6 @@ from conftest import (
     make_config,
     passing,
 )
-from rich.console import Console
-
-from devorchestrator.contracts import Artifact, MergeStrategy, PullRequest
-from devorchestrator.pipeline import LanePending
-from devorchestrator.review import ReviewGate, build_review
 
 
 def _pr() -> PullRequest:

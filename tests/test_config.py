@@ -104,6 +104,7 @@ def test_notify_config_build_notifier_with_env(  # noqa: E501
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from devorchestrator.config import Config
+    from devorchestrator.notify import TeamsNotifier
     monkeypatch.setenv("TEAMS_HOOK", "https://hooks.example.com/team")
     cfg = Config.model_validate({
         "name": "test", "role": "dev", "agent": "claude",
@@ -112,8 +113,25 @@ def test_notify_config_build_notifier_with_env(  # noqa: E501
         "notify": {"type": "teams", "webhook_env": "TEAMS_HOOK"},
     })
     notifier = cfg.notify.build_notifier()  # type: ignore[union-attr]
+    assert isinstance(notifier, TeamsNotifier)
     assert notifier is not None
     assert notifier._webhook_url == "https://hooks.example.com/team"
+
+
+def test_notify_config_build_notifier_mattermost(  # noqa: E501
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devorchestrator.config import Config
+    from devorchestrator.notify import HttpxNotifier
+    monkeypatch.setenv("MM_HOOK", "https://hooks.example.com/mm")
+    cfg = Config.model_validate({
+        "name": "test", "role": "dev", "agent": "claude",
+        "board": {"type": "plane", "url": "https://plane.local", "token_env": "P"},
+        "git": {"type": "gitea", "url": "https://gitea.local", "token_env": "G"},
+        "notify": {"type": "mattermost", "webhook_env": "MM_HOOK"},
+    })
+    notifier = cfg.notify.build_notifier()  # type: ignore[union-attr]
+    assert isinstance(notifier, HttpxNotifier)
 
 
 def test_notify_config_build_notifier_without_env(  # noqa: E501

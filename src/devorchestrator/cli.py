@@ -101,6 +101,17 @@ def init(
         console.print(f"[green]✓ mesh url: {config.mesh.supabase_url}[/]")
         console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
 
+        key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+        if key:
+            from .mesh.store import SupabaseMesh, create_supabase_client
+            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            mesh.emit("dev_joined", "init", {"dev": config.name})
+            console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
+        else:
+            console.print(
+                f"[yellow]⚠  ${config.mesh.supabase_key_env} not set — mesh registration skipped[/]"
+            )
+
     if migrate and config.mesh.supabase_url:
         dsn = __import__("os").environ.get("SUPABASE_DSN", "")
         if dsn:

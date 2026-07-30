@@ -26,6 +26,9 @@ class FakeMesh:
     def recent_decisions(self, limit: int = 10) -> list:
         return []
 
+    def list_modules(self) -> list[str]:
+        return ["runner.py"]
+
 
 def test_render_dashboard_output() -> None:
     buf = StringIO()
@@ -45,6 +48,9 @@ def test_render_dashboard_empty_mesh() -> None:
         def who_is_touching(self, module):
             return []
         def recent_decisions(self, limit=10):
+            return []
+
+        def list_modules(self) -> list[str]:
             return []
 
     buf = StringIO()

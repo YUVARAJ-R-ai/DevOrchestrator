@@ -21,6 +21,7 @@ the rest of Lane C reads and writes.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -35,6 +36,7 @@ from rich.console import Console
 
 __all__ = [
     "ClaudeSession",
+    "SessionFailed",
     "SessionKind",
     "SessionState",
     "SessionStatus",
@@ -178,6 +180,32 @@ def claude_command(prompt_file: Path, *, binary: str = "claude") -> str:
 def _tmux_name(branch: str) -> str:
     """tmux rejects ``.`` and ``:`` in names and handles ``/`` awkwardly."""
     return branch.replace("/", "-").replace(".", "-").replace(":", "-")
+
+
+#: Matches the artifact path every pipeline prompt embeds, e.g.
+#: ``.orchestrator/feature/issue-9-widget/artifact.md``.
+_ARTIFACT_IN_PROMPT = re.compile(r"(\S+)/artifact\.md")
+
+
+def _branch_from_prompt(prompt: str) -> str:
+    """Recover the branch from the artifact path inside a prompt.
+
+    ``pipeline.py`` constructs sessions before a task is picked, then passes
+    prompts that always name ``{workdir}/{branch}/artifact.md``. Rather than
+    require Lane A to call :meth:`ClaudeSession.bind`, we read the branch back
+    out of the prompt. Branch names are always two components
+    (``feature/issue-N-slug``), which is what makes this unambiguous regardless
+    of how deep ``workdir`` is.
+    """
+    match = _ARTIFACT_IN_PROMPT.search(prompt)
+    if match:
+        parts = [p for p in match.group(1).replace("\\", "/").split("/") if p not in ("", ".")]
+        if len(parts) >= 2:
+            return "/".join(parts[-2:])
+    raise SessionFailed(
+        "cannot determine the branch for this session: the prompt names no "
+        "'<branch>/artifact.md' path. Call ClaudeSession.bind(branch) first."
+    )
 
 
 def _set_remain_on_exit(window) -> None:
@@ -419,57 +447,122 @@ class TmuxRunner:
                 process.terminate()
 
 
+class SessionFailed(RuntimeError):
+    """An agent session did not complete successfully.
+
+    Raised by :meth:`ClaudeSession.run`. Failing loudly matters: if a research
+    session dies and we return quietly, ``pipeline.py`` reads a missing artifact
+    as ``raw=""`` and cheerfully hands an empty plan to the implementation
+    session. A clear exception is far better than a silent no-op build.
+    """
+
+
 class ClaudeSession:
     """Lane C's :class:`~devorchestrator.contracts.AgentSession` implementation.
 
     The contract is deliberately tiny (``run`` / ``is_alive``) so the pipeline
     can drive a session without knowing about tmux. Everything richer — exit
     codes, timings, captured output — stays on ``.state`` for Lane C's own use.
+
+    ``branch`` may be omitted and supplied later with :meth:`bind`. ``pipeline.py``
+    constructs both sessions in ``build_pipeline`` — before a task is picked, so
+    before any branch exists — and only learns the branch inside ``start()``.
     """
 
     def __init__(
         self,
         kind: SessionKind,
         *,
-        branch: str,
+        branch: str | None = None,
         cwd: Path | None = None,
         agent: str = "claude",
         headless: bool = False,
         root: Path | None = None,
         runner: TmuxRunner | None = None,
+        timeout: float = 1800.0,
     ) -> None:
         self.kind = kind
         self.branch = branch
         self.root = root
-        self.runner = runner or TmuxRunner(
-            branch=branch, cwd=cwd, agent=agent, force_headless=headless, root=root
+        self.timeout = timeout
+        self._cwd = cwd
+        self._agent = agent
+        self._headless = headless
+        self.runner = runner or (
+            TmuxRunner(branch=branch, cwd=cwd, agent=agent, force_headless=headless, root=root)
+            if branch is not None
+            else None
         )
-        self.state = SessionState(kind=kind, branch=branch)
+        self.state = SessionState(kind=kind, branch=branch or "")
 
     # -- AgentSession protocol --------------------------------------------
 
     def run(self, prompt: str) -> None:
-        """Write ``prompt`` to the workspace and spawn the agent on it."""
+        """Render the prompt, run the agent, and **block until it finishes**.
+
+        Blocking is required by the contract: ``pipeline.py`` reads the artifact
+        file on the line after ``research.run(...)`` returns, so the work must
+        be done by then (see docs/spine.md §"AgentSession").
+
+        Raises:
+            SessionFailed: on a non-zero exit or a timeout.
+        """
+        if self.branch is None:
+            self.bind(_branch_from_prompt(prompt))
+
         path = prompt_path(self.branch, self.kind, root=self.root)
         path.write_text(prompt, encoding="utf-8")
         self.run_prompt_file(path)
+        state = self.wait(timeout=self.timeout)
+
+        if not state.ok:
+            reason = state.error or f"exit {state.exit_code}"
+            tail = self.capture(lines=15)
+            console.print(f"[red]{state.name} failed:[/red] {reason}")
+            if tail:
+                console.print(f"[dim]{tail}[/dim]")
+            raise SessionFailed(f"{self.kind.value} session failed: {reason}")
 
     def is_alive(self) -> bool:
-        return self.runner.is_alive(self.state)
+        return self.runner is not None and self.runner.is_alive(self.state)
 
     # -- Lane C extras -----------------------------------------------------
 
+    def bind(self, branch: str) -> None:
+        """Attach this session to a branch, building its runner.
+
+        Lets the pipeline construct sessions up front and name the branch once
+        the developer has picked a task.
+        """
+        self.branch = branch
+        self.state = SessionState(kind=self.kind, branch=branch)
+        if self.runner is None or self.runner.branch != branch:
+            self.runner = TmuxRunner(
+                branch=branch,
+                cwd=self._cwd,
+                agent=self._agent,
+                force_headless=self._headless,
+                root=self.root,
+            )
+
     def run_prompt_file(self, path: Path) -> SessionState:
-        """Spawn against an already-rendered prompt file."""
+        """Spawn against an already-rendered prompt file (non-blocking)."""
+        if self.runner is None:
+            raise SessionFailed("session has no branch — call bind(branch) first")
         self.state = self.runner.spawn(self.kind, claude_command(path, binary=self.runner.agent))
         return self.state
 
-    def wait(self, *, timeout: float = 1800.0, poll: float = 1.0) -> SessionState:
-        self.state = self.runner.wait(self.state, timeout=timeout, poll=poll)
+    def wait(self, *, timeout: float | None = None, poll: float = 1.0) -> SessionState:
+        if self.runner is None:
+            return self.state
+        self.state = self.runner.wait(
+            self.state, timeout=timeout if timeout is not None else self.timeout, poll=poll
+        )
         return self.state
 
     def capture(self, *, lines: int = 60) -> str:
-        return self.runner.capture(self.state, lines=lines)
+        return self.runner.capture(self.state, lines=lines) if self.runner else ""
 
     def kill(self) -> None:
-        self.runner.kill()
+        if self.runner is not None:
+            self.runner.kill()

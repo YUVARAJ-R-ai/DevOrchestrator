@@ -375,6 +375,16 @@ def pr(
         raise typer.Exit(code=1)
 
     branch = _detect_branch()
+    if branch == base or branch in {"dev", "main", "master", "unknown"}:
+        console.print(
+            f"[red]✗ you're on '{branch}', not a feature branch[/] — can't open a PR "
+            f"from '{branch}' into '{base}'.\n"
+            "    Run [bold]devorchestrator start[/] first (it creates + checks out a "
+            "feature branch, runs the AI sessions, and commits the work); then run "
+            "[bold]devorchestrator pr[/] from that branch."
+        )
+        raise typer.Exit(code=1)
+
     issue_id = _issue_id_from_branch(branch)
 
     from .pr_description import generate_pr_description, save_pr_description

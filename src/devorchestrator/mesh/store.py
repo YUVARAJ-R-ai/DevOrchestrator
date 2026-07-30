@@ -60,6 +60,19 @@ class SupabaseMesh(Mesh):
             for row in (result.data or [])
         ]
 
+    def list_modules(self) -> list[str]:
+        result = (
+            self._client.table("events")
+            .select("module")
+            .execute()
+        )
+        seen: list[str] = []
+        for row in (result.data or []):
+            mod = row["module"]
+            if mod not in seen:
+                seen.append(mod)
+        return seen
+
     def recent_decisions(self, limit: int = 10) -> list[Decision]:
         result = (
             self._client.table("events")

@@ -5,7 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import (
+
+from devorchestrator.contracts import DevActivity
+from devorchestrator.pipeline import (
+    LanePending,
+    Pipeline,
+    PipelineAborted,
+    PipelineError,
+    build_pipeline,
+)
+from tests.conftest import (
     ARTIFACT_BODY,
     FakeBoard,
     FakeChecks,
@@ -16,15 +25,6 @@ from conftest import (
     failing,
     make_config,
     passing,
-)
-
-from devorchestrator.contracts import DevActivity
-from devorchestrator.pipeline import (
-    LanePending,
-    Pipeline,
-    PipelineAborted,
-    PipelineError,
-    build_pipeline,
 )
 
 

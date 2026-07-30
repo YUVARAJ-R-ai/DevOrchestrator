@@ -9,9 +9,8 @@ from devorchestrator.contracts import DevActivity, Mesh
 def render_dashboard(mesh: Mesh, console: Console | None = None) -> None:
     """Render a Rich table showing team activity from the mesh."""
     console = console or Console()
-    # Read all modules that have events (proxy: iterate known modules)
     statuses: list[DevActivity] = []
-    for module in _known_modules(mesh):
+    for module in mesh.list_modules():
         statuses.extend(mesh.who_is_touching(module))
 
     table = Table(title="Lane D — Team Activity Dashboard")
@@ -25,22 +24,6 @@ def render_dashboard(mesh: Mesh, console: Console | None = None) -> None:
         table.add_row(s.dev, s.module, s.branch, s.event_type, s.ts)
 
     console.print(table)
-
-
-def _known_modules(mesh: Mesh) -> list[str]:
-    """Discover modules with recent events.
-
-    Tries up to 3 common module names; the production version will query
-    DISTINCT module from the events table.
-    """
-    candidates = [
-        "runner.py",
-        "autofix.py",
-        "store.py",
-        "pr_description.py",
-        "notify.py",
-    ]
-    return [m for m in candidates if mesh.who_is_touching(m)]
 
 
 __all__ = ["render_dashboard"]

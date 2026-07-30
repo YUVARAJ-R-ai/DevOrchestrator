@@ -351,13 +351,35 @@ def load_pipeline_context(
 
     from .sessions.artifact import load_artifact
 
-    ctx.artifact = load_artifact(branch, issue_id=ctx.issue.id, root=root)
+    # Path(), not the raw arg: sessions.artifact does `root / branch` internally,
+    # which raises TypeError on a str root.
+    ctx.artifact = load_artifact(branch, issue_id=ctx.issue.id, root=Path(root))
     return ctx
 
 
 # ---------------------------------------------------------------------------
 # Pure helpers (prompt templates, parsing) — no side effects, easy to test
 # ---------------------------------------------------------------------------
+
+
+def _describe_pr_for(config: Config) -> Callable[[PipelineContext], str]:
+    """The real PR-body writer: brain-written if configured, mechanical otherwise.
+
+    ``config=`` is the part that matters — without it generate_pr_description
+    can't build the brain and silently returns the mechanical description no
+    matter how the brain is configured, with no error to notice. Guarded by
+    test_describe_pr_forwards_config_to_the_brain.
+    """
+
+    def describe(ctx: PipelineContext) -> str:
+        from .pr_description import generate_pr_description, save_pr_description
+
+        body = generate_pr_description(ctx.branch.name, base=ctx.branch.base, config=config)
+        # Also kept on disk so a failed open_pr() doesn't lose the generated body.
+        save_pr_description(body, ctx.branch.name)
+        return body
+
+    return describe
 
 
 def _default_pr_description(ctx: PipelineContext) -> str:
@@ -404,7 +426,8 @@ _REQUIRED_ADAPTERS: list[tuple[str, str, str]] = [
 
 
 def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
-                   on_event: Callable[[str], None] | None = None) -> Pipeline:
+                   on_event: Callable[[str], None] | None = None,
+                   all_checks: bool = False) -> Pipeline:
     """Construct a Pipeline wired to the real adapters for ``config``.
 
     Until Lane B/C/D land, this raises :class:`LanePending` for the first missing
@@ -442,7 +465,6 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     from .checks.runner import SubprocessCheckRunner
     from .integrations.github_board import GithubBoard
     from .integrations.github_git import GithubGit
-    from .pr_description import generate_pr_description
     from .sessions.tmux_runner import ClaudeSession, SessionKind
 
     board = GithubBoard(
@@ -457,7 +479,7 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     )
     research = ClaudeSession(SessionKind.research, agent=config.agent.value)
     impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
-    checks = SubprocessCheckRunner()
+    checks = SubprocessCheckRunner(all_checks=all_checks)
 
     mesh = None
     mesh_key = os.environ.get(config.mesh.supabase_key_env, "")
@@ -477,12 +499,7 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         checks=checks,
         mesh=mesh,
         notifier=notifier,
-        # config= is what lets generate_pr_description reach the brain; without it
-        # it silently returns the mechanical description no matter how the brain
-        # is configured (see test_describe_pr_forwards_config_to_the_brain).
-        describe_pr=lambda ctx: generate_pr_description(
-            ctx.branch.name, base=ctx.branch.base, config=config
-        ),
+        describe_pr=_describe_pr_for(config),
         workdir=workdir,
         on_event=on_event,
         # Required, not optional: create_branch() only makes a remote ref via the

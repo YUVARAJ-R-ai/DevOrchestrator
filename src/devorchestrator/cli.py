@@ -14,7 +14,9 @@ import re
 import subprocess
 from pathlib import Path
 
+import httpx
 import typer
+import yaml
 from rich.console import Console
 
 from . import __version__
@@ -83,20 +85,201 @@ def _root(
     ctx.obj = {"config_dir": config_dir or Path.cwd()}
 
 
+def _scaffold_yaml(path: Path) -> None:
+    """Interactively write a github-typed devOrchestrator.yaml — the only board/git
+    backend actually implemented in this repo (see docs/GAPS.md)."""
+    console.print(f"[yellow]›[/] No {CONFIG_FILENAME} found at [cyan]{path}[/] — let's create one.")
+    name = typer.prompt("Your name (used in mesh + notifications)")
+    repo_url = typer.prompt("GitHub repo URL", default="https://github.com/OWNER/REPO")
+    project_raw = typer.prompt(
+        "GitHub Project (v2) number for Priority/Size fields (Enter to skip)",
+        default="", show_default=False,
+    )
+    use_mesh = typer.confirm("Configure the Supabase mesh now?", default=False)
+    supabase_url = typer.prompt("Supabase project URL", default="") if use_mesh else ""
+
+    data: dict = {
+        "name": name,
+        "role": "dev",
+        "agent": "claude",
+        "board": {"type": "github", "url": repo_url, "token_env": "GITHUB_TOKEN"},
+        "git": {"type": "github", "url": repo_url, "token_env": "GITHUB_TOKEN"},
+        "brain": {
+            "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",
+            "token_env": "OPENROUTER_API_KEY",
+        },
+        "notify": {"type": "mattermost", "webhook_env": "MATTERMOST_WEBHOOK"},
+        "mesh": {"supabase_url": supabase_url, "supabase_key_env": "SUPABASE_SERVICE_KEY"},
+    }
+    if project_raw.strip():
+        data["board"]["project_number"] = int(project_raw.strip())
+
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    console.print(f"[green]✓[/] wrote {path}")
+
+
+def _load_raw_yaml(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _required_env_vars(raw: dict) -> list[tuple[str, str, bool, str]]:
+    """(env_var, prompt label, is_secret, default-if-left-blank) for whatever this
+    config actually references — derived from the raw yaml, not a fixed list, so
+    it works whether the yaml was just scaffolded or hand-edited."""
+    out: list[tuple[str, str, bool, str]] = []
+    board, git = raw.get("board") or {}, raw.get("git") or {}
+    if board.get("token_env"):
+        out.append((board["token_env"], "GitHub token (repo + project scopes)", True, ""))
+    if git.get("token_env") and git["token_env"] != board.get("token_env"):
+        out.append((git["token_env"], "Git token", True, ""))
+    brain = raw.get("brain")
+    if brain and brain.get("token_env"):
+        provider = brain.get("provider", "brain")
+        out.append((
+            brain["token_env"],
+            f"{provider} API key for the brain (Enter for a placeholder — "
+            "brain falls back to a mechanical PR description without it)",
+            True, "placeholder",
+        ))
+    notify = raw.get("notify")
+    if notify and notify.get("webhook_env"):
+        out.append((
+            notify["webhook_env"], "Notify webhook URL (Enter for a placeholder)",
+            False, "https://example.com/placeholder",
+        ))
+    mesh = raw.get("mesh") or {}
+    if mesh.get("supabase_url") and mesh.get("supabase_key_env"):
+        out.append((
+            mesh["supabase_key_env"], "Supabase service key (Enter to skip the mesh)",
+            True, "",
+        ))
+    return out
+
+
+_PLACEHOLDER_MARKERS = ("replace_me", "your_token", "your-token", "xxxx", "<", "changeme")
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    """True for obvious not-a-real-secret values, so 'Enter to keep' won't
+    preserve them and the connection test can warn instead of trusting them.
+    'placeholder' is intentionally allowed for brain/notify vars that genuinely
+    just need to be non-empty — only reject it for secret-shaped values."""
+    low = value.lower()
+    return any(marker in low for marker in _PLACEHOLDER_MARKERS)
+
+
+def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) -> None:
+    """Prompt for every var this config references, every time.
+
+    Shows whether one's already set so Enter keeps it — but always asks,
+    rather than silently trusting whatever's already in .env. A stale or
+    placeholder value sitting there (e.g. a token that was never actually
+    filled in) would otherwise never get surfaced or corrected.
+    """
+    existing: dict[str, str] = {}
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key, _, value = stripped.partition("=")
+                existing[key.strip()] = value.strip()
+
+    changed = False
+    for var, label, secret, default in required:
+        current = existing.get(var, "")
+        # A leftover placeholder must NOT count as a keepable value, or "Enter to
+        # keep" silently preserves junk (exactly the trap that shipped before).
+        keepable = current and not _looks_like_placeholder(current)
+        suffix = " [Enter to keep the current value]" if keepable else ""
+        value = typer.prompt(f"{label}{suffix}", default="", show_default=False, hide_input=secret)
+        if value:
+            if value != current:
+                changed = True
+            existing[var] = value
+        elif keepable:
+            pass  # keep the real existing value, no rewrite
+        else:
+            existing[var] = default
+            changed = True
+
+    if changed:
+        env_path.write_text(
+            "\n".join(f"{k}={v}" for k, v in existing.items()) + "\n", encoding="utf-8"
+        )
+        console.print(f"[green]✓[/] wrote {env_path}")
+
+
+def _test_github_connection(config: Config) -> None:
+    """Actually verify the token works and can see the configured repo — not just
+    'the field is non-empty', which is all config validation checks."""
+    from .integrations.github_board import _parse_owner_repo
+
+    token = os.environ.get(config.git.token_env, "")
+    if not token:
+        console.print("[yellow]⚠  no GitHub token set — skipping connection test[/]")
+        return
+    if _looks_like_placeholder(token):
+        console.print(
+            f"[red]✗ ${config.git.token_env} is still a placeholder ({token!r}) — "
+            "put a real GitHub token (repo + project scopes) in .env before running start[/]"
+        )
+        return
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    try:
+        who = httpx.get("https://api.github.com/user", headers=headers, timeout=10.0)
+    except httpx.HTTPError as exc:
+        console.print(f"[red]✗ could not reach GitHub API: {exc}[/]")
+        return
+    if who.status_code != 200:
+        console.print(f"[red]✗ GitHub token rejected ({who.status_code}) — check scopes/expiry[/]")
+        return
+    console.print(f"[green]✓ GitHub token valid[/] (as [bold]{who.json().get('login')}[/])")
+
+    try:
+        owner, repo = _parse_owner_repo(config.board.url)
+    except ValueError:
+        console.print("[yellow]⚠  could not parse owner/repo from board.url[/]")
+        return
+    repo_resp = httpx.get(
+        f"https://api.github.com/repos/{owner}/{repo}", headers=headers, timeout=10.0
+    )
+    if repo_resp.status_code == 200:
+        console.print(f"[green]✓ repo access confirmed:[/] {owner}/{repo}")
+    else:
+        console.print(
+            f"[red]✗ cannot access {owner}/{repo} ({repo_resp.status_code}) "
+            "— check the token has access to this repo[/]"
+        )
+
+
 @app.command()
 def init(
     ctx: typer.Context,
     migrate: bool = typer.Option(False, "--migrate", help="Run Supabase schema migration."),
 ) -> None:
-    """Validate config, scaffold .orchestrator/, test connections, and optionally migrate."""
-    config = _load_or_exit(ctx, check_env=False)
+    """Scaffold devOrchestrator.yaml + .env if missing, validate, test connections, migrate."""
     config_dir: Path = ctx.obj["config_dir"]
+    yaml_path = config_dir / CONFIG_FILENAME
+    env_path = config_dir / ".env"
+
+    if not yaml_path.is_file():
+        _scaffold_yaml(yaml_path)
+    _scaffold_env(env_path, _required_env_vars(_load_raw_yaml(yaml_path)))
+
+    config = _load_or_exit(ctx, check_env=True)
     workdir = config_dir / ".orchestrator"
     workdir.mkdir(parents=True, exist_ok=True)
     console.print(
         f"[green]✓[/] config valid for [bold]{config.name}[/] ({config.track.value} track)"
     )
     console.print(f"[green]✓[/] workspace ready at [cyan]{workdir}[/]")
+
+    _test_github_connection(config)
+
+    if config.brain is not None:
+        from .sessions.brain import build_brain
+        console.print(f"[green]✓ brain:[/] {build_brain(config).describe()}")
 
     if not config.mesh.supabase_url:
         console.print("[yellow]⚠  mesh.supabase_url not configured — skipping mesh setup[/]")

@@ -79,3 +79,6 @@ desktop.ini
 .pytest_cache/
 htmlcov/
 .tox/
+
+# per-dev config (the .template is the shared one, like .env)
+/devOrchestrator.yaml

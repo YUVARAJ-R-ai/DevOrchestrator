@@ -16,6 +16,7 @@ it). Rich rendering lives in the CLI and in ``review.py``, not here.
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -82,6 +83,7 @@ class Pipeline:
         describe_pr: Callable[[PipelineContext], str] | None = None,
         workdir: Path | str = ".orchestrator",
         on_event: Callable[[str], None] | None = None,
+        local_git: bool = False,
     ) -> None:
         self.config = config
         self.board = board
@@ -93,6 +95,7 @@ class Pipeline:
         self.notifier = notifier
         self._describe_pr = describe_pr or _default_pr_description
         self.workdir = Path(workdir)
+        self.local_git = local_git
         self._on_event = on_event or (lambda _msg: None)
 
     # -- public loop ------------------------------------------------------
@@ -113,6 +116,8 @@ class Pipeline:
         self._event(f"selected {issue.id}: {issue.title}")
 
         branch = self.git.create_branch(issue, base="dev")
+        if self.local_git:
+            self._checkout_local(branch)
         self._emit("task_started", module=_primary_module(branch), payload={
             "issue_id": issue.id, "title": issue.title, "branch": branch.name,
         })
@@ -135,6 +140,8 @@ class Pipeline:
         # Implementation session works through the artifact.
         self.impl.run(_impl_prompt(artifact_path))
         self._event("implementation session finished")
+        if self.local_git:
+            self._commit_and_push(branch, issue)
         return ctx
 
     def prepare_pr(self, ctx: PipelineContext, *, autofix: bool = True) -> PipelineContext:
@@ -169,6 +176,43 @@ class Pipeline:
         return ctx
 
     # -- internals --------------------------------------------------------
+
+    def _checkout_local(self, branch: BranchRef) -> None:
+        """Fetch and check out the branch git.create_branch() just made on the server.
+
+        create_branch only creates a ref via the git server's API — nothing else
+        checks out a local working copy, so without this the research/impl
+        sessions would edit files on whatever branch happened to be checked out
+        before start() ran, not the new one.
+        """
+        subprocess.run(["git", "fetch", "origin", branch.name], check=True)
+        result = subprocess.run(
+            ["git", "checkout", "-B", branch.name, f"origin/{branch.name}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise PipelineError(f"could not check out {branch.name} locally: {result.stderr}")
+
+    def _commit_and_push(self, branch: BranchRef, issue: Issue) -> None:
+        """Commit whatever the impl session changed and push it to ``branch``.
+
+        Nothing else in the loop commits or pushes — without this, open_pr()
+        would open a PR with zero commits (identical to base), since
+        create_branch only creates an empty ref.
+        """
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
+        )
+        if not status.stdout.strip():
+            self._event("nothing to commit — implementation session made no changes")
+            return
+
+        subprocess.run(["git", "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"issue #{issue.id}: {issue.title}"], check=True
+        )
+        subprocess.run(["git", "push", "-u", "origin", branch.name], check=True)
+        self._event(f"committed and pushed to {branch.name}")
 
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"

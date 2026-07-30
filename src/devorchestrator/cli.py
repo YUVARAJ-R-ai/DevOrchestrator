@@ -379,7 +379,7 @@ def pr(
 
     from .pr_description import generate_pr_description, save_pr_description
 
-    desc = generate_pr_description(branch, base=base)
+    desc = generate_pr_description(branch, base=base, config=config)
     out = save_pr_description(desc, branch)
     console.print(f"[dim]PR description saved to {out}[/]")
 

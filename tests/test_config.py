@@ -35,7 +35,8 @@ def test_valid_minimal_config_loads(tmp_path: Path) -> None:
     assert cfg.track is Track.oss
     # optional sections default sensibly
     assert cfg.brain is None
-    assert cfg.mesh.db_path == ".orchestrator/mesh.db"
+    assert cfg.mesh.supabase_url == ""
+    assert cfg.mesh.supabase_key_env == ""
 
 
 def test_missing_file_has_hint(tmp_path: Path) -> None:

@@ -99,9 +99,10 @@ class NotifyConfig(_Strict):
 
 
 class MeshConfig(_Strict):
-    """Shared context mesh (SQLite, WAL). Optional; defaults to a local path."""
+    """Shared context mesh (Supabase/Postgres). Required fields: url + key_env."""
 
-    db_path: str = ".orchestrator/mesh.db"
+    supabase_url: str = ""
+    supabase_key_env: str = ""
 
 
 class Config(_Strict):

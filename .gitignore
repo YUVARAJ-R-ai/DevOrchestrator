@@ -33,6 +33,12 @@ secrets.yaml
 .claude/settings.json
 .claude/settings.local.json
 
+# Agent-local instructions (not source code)
+AGENTS.md
+
+# Local tooling config
+.opencode/
+
 # SQLite (shared mesh DB — server-side only)
 *.db
 *.db-shm

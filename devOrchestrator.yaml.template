@@ -24,5 +24,6 @@ notify:                # optional
   type: mattermost     # mattermost | teams
   webhook_env: MATTERMOST_WEBHOOK
 
-mesh:                  # optional — defaults shown
-  db_path: .orchestrator/mesh.db
+mesh:                  # required — Supabase connection
+  supabase_url: https://<project>.supabase.co
+  supabase_key_env: SUPABASE_SERVICE_KEY

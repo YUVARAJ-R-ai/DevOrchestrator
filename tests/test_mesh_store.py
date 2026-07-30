@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from devorchestrator.mesh.store import SupabaseMesh
+from tests.mocks import MockSupabaseClient, MockSupabaseTable
+
+
+def _make_client() -> MockSupabaseClient:
+    return MockSupabaseClient()
+
+
+def test_emit_inserts_event() -> None:
+    client = _make_client()
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    mesh.emit("check_pass", "runner.py", {"dev": "tharun"})
+
+    events = client.table("events")
+    assert len(events.inserted) == 1
+    assert events.inserted[0]["event_type"] == "check_pass"
+    assert events.inserted[0]["module"] == "runner.py"
+
+
+def test_who_is_touching_returns_activities() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(
+        rows=[
+            {"dev": "alice", "module": "runner.py", "branch": "main",
+             "event_type": "check", "ts": "2026-01-01T00:00:00"},
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    activities = mesh.who_is_touching("runner.py")
+    assert len(activities) == 1
+    assert activities[0].dev == "alice"
+
+
+def test_who_is_touching_empty_module() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(rows=[])
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    assert mesh.who_is_touching("nonexistent.py") == []
+
+
+def test_recent_decisions_returns_filtered() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(
+        rows=[
+            {"dev": "tharun", "event_type": "decision", "module": "store.py",
+             "payload": {"description": "use supabase", "modules": ["store.py"]},
+             "ts": "2026-01-01T00:00:00"},
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    decisions = mesh.recent_decisions(limit=5)
+    assert len(decisions) == 1
+    assert decisions[0].description == "use supabase"
+    assert decisions[0].dev == "tharun"
+
+
+def test_recent_decisions_empty() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(rows=[])
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    assert mesh.recent_decisions() == []
+
+
+def test_mesh_satisfies_protocol() -> None:
+    from devorchestrator.contracts import Mesh
+
+    client = _make_client()
+    assert isinstance(SupabaseMesh(client), Mesh)  # type: ignore[arg-type]

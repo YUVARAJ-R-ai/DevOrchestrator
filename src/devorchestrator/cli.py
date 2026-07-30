@@ -82,9 +82,49 @@ def start() -> None:
 
 
 @app.command()
-def pr() -> None:
+def pr(
+    ctx: typer.Context,
+    all_checks: bool = typer.Option(
+        False, "--all-checks", help="Run all checks even if one fails.",
+    ),
+    autofix_on: bool = typer.Option(
+        True, "--autofix/--no-autofix", help="Auto-fix on check failure.",
+    ),
+) -> None:
     """Run quality gates (autofix on failure), then open a PR with an AI description."""
-    _stub("pr", owner_lane="checks+pr")
+    config = _load_or_exit(ctx, check_env=False)
+    from .checks.runner import SubprocessCheckRunner
+    if autofix_on:
+        from .checks.autofix import autofix as _autofix
+        results = _autofix(SubprocessCheckRunner(all_checks=all_checks))
+    else:
+        runner = SubprocessCheckRunner(all_checks=all_checks)
+        results = runner.run_all()
+        SubprocessCheckRunner.render(results)
+
+    from supabase import create_client
+
+    from .mesh.store import SupabaseMesh
+    from .pr_description import generate_pr_description, save_pr_description
+
+    branch = _detect_branch()
+    if not results or all(r.passed for r in results):
+        mesh = SupabaseMesh(create_client(config.mesh.supabase_url, ""))
+        mesh.emit("pr_pass", "pr", {"dev": config.name})
+
+    desc = generate_pr_description(branch)
+    out = save_pr_description(desc, branch)
+    console.print(f"[green]PR description saved to {out}[/]")
+
+
+def _detect_branch() -> str:
+    try:
+        import subprocess
+        proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                              capture_output=True, text=True)
+        return proc.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 @app.command()
@@ -114,20 +154,44 @@ def status(ctx: typer.Context) -> None:
     table.add_row("git", f"{config.git.type.value} @ {config.git.url}")
     table.add_row("brain", config.brain.model if config.brain else "[dim]—[/]")
     table.add_row("notify", config.notify.type.value if config.notify else "[dim]—[/]")
-    table.add_row("mesh db", config.mesh.db_path)
+    table.add_row("mesh url", config.mesh.supabase_url or "[dim]not configured[/]")
     console.print(table)
 
 
 @app.command()
-def mesh() -> None:
+def mesh(ctx: typer.Context) -> None:
     """Show the live team activity table from the shared context mesh."""
-    _stub("mesh", owner_lane="mesh")
+    config = _load_or_exit(ctx, check_env=False)
+    from supabase import create_client
+
+    from .mesh.dashboard import render_dashboard
+    from .mesh.store import SupabaseMesh
+
+    client = create_client(config.mesh.supabase_url, "")
+    mesh_inst = SupabaseMesh(client)
+    render_dashboard(mesh_inst)
 
 
 @app.command()
-def decision(message: str = typer.Argument(..., help="The architectural decision to log.")) -> None:
+def decision(
+    ctx: typer.Context,
+    message: str = typer.Argument(..., help="The architectural decision to log."),
+    module: str = typer.Option("unknown", "--module", "-m", help="Affected module name."),
+) -> None:
     """Log an architectural decision into the shared mesh, visible to the whole team."""
-    _stub("decision", owner_lane="mesh")
+    config = _load_or_exit(ctx, check_env=False)
+    from supabase import create_client
+
+    from .mesh.store import SupabaseMesh
+
+    client = create_client(config.mesh.supabase_url, "")
+    mesh_inst = SupabaseMesh(client)
+    mesh_inst.emit("decision", module, {
+        "dev": config.name,
+        "description": message,
+        "modules": [module],
+    })
+    console.print(f"[green]Decision logged:[/] {message}")
 
 
 def main() -> None:

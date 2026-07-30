@@ -105,3 +105,7 @@ The deepest-moat pillars: the company owns the **protocol and policies, not the 
 | H3-4 | **Agent-connection protocol** spec: auth, scoped source-of-truth read, artifact I/O, mesh emit/read, escalation hooks | XL | the moat; incubated by #21 (`agy` adapter) |
 | H3-5 | Protocol conformance suite (any BYO agent can self-certify) | L | dep: H3-4 |
 | H3-6 | Organizational-memory trust layer: provenance, supersession/expiry, confidence, staleness detection | L | hardens mesh into durable org memory |
+| H3-7 | **Per-pod package manager** for skills, plugins & workflows: `add/publish/pin/upgrade/rollback` with semver | XL | productizes manual vendoring; capability travels with the pod |
+| H3-8 | Policy-gated distribution: signed provenance + audited installs (skills/workflows are executable capability = permission surface) | L | dep: H3-1, H3-7 |
+| H3-9 | Org-level index: cross-pod discovery & adoption at chosen versions | M | dep: H3-7 |
+| H3-10 | **Shareable workflows**: declarative recipe (chained skills/agents/gates/escalation) + `devorchestrator workflow share/install` | L | dep: H3-7; a pod's proven pipeline → one command for the team |

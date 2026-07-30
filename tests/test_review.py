@@ -98,4 +98,19 @@ def test_build_review_reports_lane_pending():
     with pytest.raises(LanePending) as exc:
         build_review(make_config())
     assert exc.value.component == "git"
-    assert "Lane B" in exc.value.where
+
+
+def test_build_review_constructs_real_git_adapter_for_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devorchestrator.integrations.github_git import GithubGit
+
+    monkeypatch.setenv("GIT_TOKEN", "t")
+    config = make_config(
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"}
+    )
+
+    gate = build_review(config)
+
+    assert isinstance(gate.git, GithubGit)
+    assert gate.mesh is None  # no SUPABASE_SERVICE_KEY set

@@ -27,10 +27,17 @@ The **Spine** is the architectural backbone every other lane plugs into. It owns
 | `cli.py` | Command dispatch (`init/start/pr/review/status/mesh/decision`) | done |
 | `pyproject.toml`, `devOrchestrator.yaml.template` | Packaging + shareable config | done |
 
-**The one idea that makes the whole thing work:** `pipeline.py` and `review.py`
-**never import another lane's module.** They only know about the `Protocol` classes
-defined in `contracts.py`, and receive concrete implementations by **constructor
-injection**:
+> **Where each CLI command stands today:** `start`, `pr` and `review` all dispatch
+> through `build_pipeline`/`build_review` and the `Pipeline`/`ReviewGate` methods
+> described below. `init`, `mesh` and `decision` still talk to their concrete
+> backends directly (Supabase, the checks runner) — they predate the wiring and
+> haven't been routed through the Spine. Read §4/§5 as "how the task loop works",
+> not "how every command is implemented".
+
+**The one idea that makes the whole thing work:** for every *swappable adapter* —
+board, git, sessions, checks, mesh, notifier — `pipeline.py` and `review.py` know
+only the `Protocol` classes in `contracts.py` and receive concrete implementations
+by **constructor injection**:
 
 ```python
 Pipeline(config, board=…, git=…, research=…, impl=…, checks=…, mesh=…, notifier=…)
@@ -44,6 +51,15 @@ Protocols structurally (no inheritance, no imports of real lanes), and
 `tests/test_pipeline.py` / `tests/test_review.py` drive the entire loop against them.
 It's also why your adapter, once written, doesn't require touching `pipeline.py` or
 `review.py` at all — it just needs to satisfy the right Protocol's shape.
+
+**The one deliberate exception:** prompt text and artifact parsing are *not*
+swappable adapters. There is exactly one artifact format, and Lane C owns the
+schema (`prompts/`), the writer (`sessions/research.py`) and the reader
+(`sessions/artifact.py`). `start`/`prepare_pr` import those three directly
+(function-local, so this module still imports when `sessions/` is absent) rather
+than keeping a second copy. They previously did keep one, and the two parsers
+disagreed about what a "module" is — full path vs. top-level package — while both
+fed the same key the mesh uses for conflict detection.
 
 ---
 
@@ -270,16 +286,19 @@ class Config(_Strict):
     autofix_retries: int = 2           # >= 0; how many times pipeline.py retries impl on check failure
 
     @property
-    def track(self) -> Track:          # "oss" or "azure", auto-detected from board.type
+    def track(self) -> Track:          # "oss" | "azure" | "github", from board.type
         ...
 
 class BoardConfig(_Strict):
-    type: BoardType       # plane | azure_boards
+    type: BoardType       # plane | azure_boards | github
     url: str
     token_env: str        # name of the env var holding the token — NOT the secret itself
+    project_number: int | None = None   # github only: Project (v2) number, for the
+                                        # Priority/Size fields. Unset = plain Issues
+                                        # REST API, no priority/size.
 
 class GitConfig(_Strict):
-    type: GitType          # gitea | azure_repos — must agree with board's track
+    type: GitType          # gitea | azure_repos | github — must agree with board's track
     url: str
     token_env: str
 
@@ -321,9 +340,11 @@ Order of operations, each with a distinct failure mode:
    generic Pydantic error).
 5. **Schema validation** — `Config.model_validate(raw)`; any `ValidationError` is
    reformatted into `    field.path: message` lines, one per offending field.
-6. **Track agreement** — `board.type` and `git.type` must be the same family (both
-   OSS: `plane`+`gitea`, or both Azure: `azure_boards`+`azure_repos`). Mismatch
-   raises with a hint naming exactly which field to change.
+6. **Track agreement** — `board.type` and `git.type` must be the same family
+   (`plane`+`gitea`, `azure_boards`+`azure_repos`, or `github`+`github`). Mismatch
+   raises with a hint naming exactly which field to change. **Only the `github`
+   pair is actually implemented** — the others parse fine but `build_pipeline`
+   reports `LanePending` for them.
 7. **Env var presence** (only if `check_env=True`) — every referenced `*_env` /
    `*_webhook_env` must resolve to a non-empty environment variable, or `ConfigError`
    lists all missing ones at once (not one-by-one — a dev fixes `.env` in one pass).
@@ -437,11 +458,26 @@ _REQUIRED_ADAPTERS = [
 ]
 ```
 
-Once all four modules exist, the `# TODO(wave-3)` comment marks where real
-construction goes — `Pipeline(config, board=GitHubBoard(config), git=GitHubGit(config),
-research=TmuxSession(...), impl=TmuxSession(...), checks=SubprocessCheckRunner(...),
-mesh=..., notifier=..., on_event=on_event)`. **The `Pipeline` class itself does not
-change** when this lands — only this factory function's body does.
+All four modules now exist, so past that check it constructs the real thing:
+`GithubBoard` + `GithubGit` (tokens read from the `*_token_env` env vars), two
+`ClaudeSession`s (research + impl), a `SubprocessCheckRunner`, a `SupabaseMesh`
+if `mesh.supabase_url` and its key are both set, and a notifier from
+`config.notify`. Two flags matter and are easy to drop by accident:
+
+- **`local_git=True`** — `create_branch()` only makes a *remote* ref, so without
+  this nothing checks out, commits or pushes and `open_pr()` opens an empty PR.
+- **`describe_pr=_describe_pr_for(config)`** — passing `config` is what lets the
+  PR body reach the brain; omit it and you silently get the mechanical
+  description forever.
+
+Both are asserted by tests (`test_build_pipeline_enables_local_git`,
+`test_describe_pr_forwards_config_to_the_brain`) because a merge dropped both at
+once and nothing caught it. **The `Pipeline` class itself never changed** through
+any of this — only this factory's body did, which is the point of the seam.
+
+There is one guard beyond the import check: only `board.type`/`git.type` of
+`github` are implemented, so a `plane`/`azure_boards` config raises `LanePending`
+with a "not implemented" message rather than misconstructing a GitHub adapter.
 
 **If you're implementing a Lane B/C adapter:** you don't need to touch this factory
 at all to get your own module tested — just make sure your class satisfies the
@@ -499,8 +535,9 @@ which branch was taken.
 ### The Wave-3 factory: `build_review(config, *, console=None) -> ReviewGate`
 Same pattern as `build_pipeline`: checks `devorchestrator.integrations.github_git`
 is importable, raises `LanePending("git", "Lane B: integrations/github_git.py")`
-if not. Once it exists, the `# TODO(wave-3)` marks where `ReviewGate(config, git=GiteaGit(config), mesh=..., notifier=...)`
-gets constructed for real.
+if not, and applies the same `git.type is github` guard. Past those it returns a
+real `ReviewGate(config, git=GithubGit(...), mesh=..., notifier=..., console=...)`
+— mesh only when `mesh.supabase_url` and its key are both present.
 
 ---
 

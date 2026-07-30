@@ -9,7 +9,7 @@ from devorchestrator.contracts import Notifier
 
 
 class HttpxNotifier(Notifier):
-    """Send notifications via Mattermost or Teams webhook URLs.
+    """Send notifications via webhook URLs (Mattermost generic JSON format).
 
     Expects the webhook URL in an env var (name passed to constructor).
     """
@@ -41,4 +41,30 @@ class HttpxNotifier(Notifier):
         response.raise_for_status()
 
 
-__all__ = ["HttpxNotifier"]
+class TeamsNotifier(HttpxNotifier):
+    """Send notifications via Teams webhook (Adaptive Card format)."""
+
+    def _payload(self, message: str) -> dict[str, Any]:
+        return {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": [
+                            {
+                                "type": "TextBlock",
+                                "text": message,
+                                "wrap": True,
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+
+__all__ = ["HttpxNotifier", "TeamsNotifier"]

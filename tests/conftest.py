@@ -139,6 +139,9 @@ class FakeMesh:
     def recent_decisions(self, limit: int = 10):
         return []
 
+    def list_modules(self) -> list[str]:
+        return list(self._touching)
+
 
 class FakeNotifier:
     def __init__(self) -> None:

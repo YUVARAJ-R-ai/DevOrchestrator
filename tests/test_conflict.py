@@ -17,6 +17,9 @@ class FakeMesh:
     def recent_decisions(self, limit: int = 10) -> list:
         return []
 
+    def list_modules(self) -> list[str]:
+        return list(self._activities)
+
 
 def test_no_overlap_returns_empty() -> None:
     mesh = FakeMesh({"runner.py": []})

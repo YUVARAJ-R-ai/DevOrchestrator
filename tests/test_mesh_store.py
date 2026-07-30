@@ -63,6 +63,29 @@ def test_recent_decisions_empty() -> None:
     assert mesh.recent_decisions() == []
 
 
+def test_list_modules_returns_distinct_modules() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(
+        rows=[
+            {"module": "runner.py"},
+            {"module": "runner.py"},
+            {"module": "store.py"},
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    modules = mesh.list_modules()
+    assert "runner.py" in modules
+    assert "store.py" in modules
+    assert len(modules) == 2
+
+
+def test_list_modules_empty() -> None:
+    client = _make_client()
+    client.tables["events"] = MockSupabaseTable(rows=[])
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    assert mesh.list_modules() == []
+
+
 def test_mesh_satisfies_protocol() -> None:
     from devorchestrator.contracts import Mesh
 

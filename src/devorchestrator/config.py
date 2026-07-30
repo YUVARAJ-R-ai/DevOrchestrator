@@ -113,10 +113,16 @@ class NotifyConfig(_Strict):
     webhook_env: str = Field(description="Name of the env var holding the notify webhook URL.")
 
     def build_notifier(self) -> HttpxNotifier | None:
-        """Build a notifier from this config, or None if the webhook env is unset."""
+        """Build a notifier from this config, or None if the webhook env is unset.
+
+        Dispatches to TeamsNotifier for ``teams`` type, HttpxNotifier otherwise.
+        """
         url = os.environ.get(self.webhook_env)
         if not url:
             return None
+        if self.type is NotifyType.teams:
+            from devorchestrator.notify import TeamsNotifier
+            return TeamsNotifier(self.webhook_env)
         from devorchestrator.notify import HttpxNotifier
         return HttpxNotifier(self.webhook_env)
 

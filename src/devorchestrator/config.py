@@ -117,6 +117,11 @@ class Config(_Strict):
     notify: NotifyConfig | None = None
     mesh: MeshConfig = Field(default_factory=MeshConfig)
 
+    autofix_retries: int = Field(
+        default=2, ge=0,
+        description="How many times the pipeline re-invokes the agent to fix failing checks.",
+    )
+
     @property
     def track(self) -> Track:
         """Backend family, auto-detected from the board type.

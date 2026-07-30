@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from devorchestrator.contracts import BranchRef, DevActivity, Issue, PipelineContext
+from devorchestrator.contracts import BranchRef, DevActivity, Issue, IssueState, PipelineContext
 from devorchestrator.pipeline import (
     LanePending,
     Pipeline,
@@ -67,6 +67,8 @@ def test_start_happy_path(tmp_path, branch, issue):
     # both key mesh events emitted
     kinds = [e[0] for e in mesh.events]
     assert kinds == ["task_started", "artifact_generated"]
+    # and the board's Status column followed the work
+    assert pipe.board.moved == [(issue.id, str(IssueState.in_progress))]
 
 
 def test_start_aborts_without_selection(tmp_path, branch, issue):
@@ -128,6 +130,27 @@ def test_prepare_pr_opens_pr_when_checks_pass(tmp_path, branch, issue):
     assert len(impl.prompts) == 1  # no autofix retry needed
     assert any(e[0] == "pr_opened" for e in mesh.events)
     assert any("PR ready" in m for m in notifier.messages)
+    # in_progress at start(), then in_review once the PR is open
+    assert pipe.board.moved == [
+        (ctx.issue.id, str(IssueState.in_progress)),
+        (ctx.issue.id, str(IssueState.in_review)),
+    ]
+
+
+def test_board_move_failure_does_not_abort_the_run(tmp_path, branch, issue):
+    """A flaky board must not throw away a finished implementation."""
+    events: list[str] = []
+    pipe, _, _ = _pipeline(tmp_path, branch, issue, events=events)
+
+    def _boom(issue_id, state):
+        raise RuntimeError("board unreachable")
+
+    pipe.board.move_issue = _boom
+
+    ctx = pipe.start(select=lambda issues: issues[0])
+
+    assert ctx.artifact is not None  # the run completed
+    assert any("could not move issue" in e for e in events)
 
 
 def test_prepare_pr_autofix_then_success(tmp_path, branch, issue):

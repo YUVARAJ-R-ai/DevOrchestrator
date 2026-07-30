@@ -35,6 +35,7 @@ from .contracts import (
     CheckRunner,
     GitAdapter,
     Issue,
+    IssueState,
     Mesh,
     Notifier,
     PipelineContext,
@@ -125,6 +126,7 @@ class Pipeline:
         branch = self.git.create_branch(issue, base="dev")
         if self.local_git:
             self._checkout_local(branch)
+        self._move_issue(issue.id, IssueState.in_progress)
         self._emit("task_started", module=_primary_module(branch), payload={
             "issue_id": issue.id, "title": issue.title, "branch": branch.name,
         })
@@ -205,6 +207,7 @@ class Pipeline:
         self._emit("pr_opened", module=_primary_module(ctx.branch), payload={
             "branch": ctx.branch.name, "pr_url": pr.url, "pr_number": pr.number,
         })
+        self._move_issue(ctx.issue.id, IssueState.in_review)
         self._notify(f"PR ready: {ctx.issue.title} — {pr.url}")
         self._event(f"opened PR #{pr.number}: {pr.url}")
         return ctx
@@ -250,6 +253,18 @@ class Pipeline:
 
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"
+
+    def _move_issue(self, issue_id: str, state: IssueState) -> None:
+        """Advance the board's Status column, but never fail the run over it.
+
+        The board is a reporting surface here, not the source of truth — losing
+        network mid-task should not throw away a finished implementation, and
+        GithubBoard.move_issue is already a no-op when no project is configured.
+        """
+        try:
+            self.board.move_issue(issue_id, state)
+        except Exception as exc:  # noqa: BLE001 - board status is best-effort
+            self._event(f"could not move issue {issue_id} to {state.value}: {exc}")
 
     def _warn_on_conflicts(self, artifact: Artifact) -> None:
         if self.mesh is None:

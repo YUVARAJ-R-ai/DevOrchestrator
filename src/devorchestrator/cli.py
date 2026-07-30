@@ -134,8 +134,11 @@ def _required_env_vars(raw: dict) -> list[tuple[str, str, bool, str]]:
         out.append((git["token_env"], "Git token", True, ""))
     brain = raw.get("brain")
     if brain and brain.get("token_env"):
+        provider = brain.get("provider", "brain")
         out.append((
-            brain["token_env"], "Brain/OpenRouter API key (Enter for a placeholder)",
+            brain["token_env"],
+            f"{provider} API key for the brain (Enter for a placeholder — "
+            "brain falls back to a mechanical PR description without it)",
             True, "placeholder",
         ))
     notify = raw.get("notify")
@@ -274,6 +277,10 @@ def init(
 
     _test_github_connection(config)
 
+    if config.brain is not None:
+        from .sessions.brain import build_brain
+        console.print(f"[green]✓ brain:[/] {build_brain(config).describe()}")
+
     if not config.mesh.supabase_url:
         console.print("[yellow]⚠  mesh.supabase_url not configured — skipping mesh setup[/]")
     else:
@@ -365,7 +372,7 @@ def pr(
 
     from .pr_description import generate_pr_description, save_pr_description
 
-    desc = generate_pr_description(branch, base=base)
+    desc = generate_pr_description(branch, base=base, config=config)
     out = save_pr_description(desc, branch)
     console.print(f"[dim]PR description saved to {out}[/]")
 

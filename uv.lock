@@ -204,6 +204,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -231,6 +232,7 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "libtmux", marker = "extra == 'agent'", specifier = ">=0.35" },
+    { name = "openai", specifier = ">=1.30" },
     { name = "openai", marker = "extra == 'brain'", specifier = ">=1.30" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "python-dotenv", specifier = ">=1.0" },

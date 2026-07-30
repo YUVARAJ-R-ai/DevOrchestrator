@@ -58,11 +58,13 @@ class Agent(StrEnum):
 class BoardType(StrEnum):
     plane = "plane"
     azure_boards = "azure_boards"
+    github = "github"
 
 
 class GitType(StrEnum):
     gitea = "gitea"
     azure_repos = "azure_repos"
+    github = "github"
 
 
 class NotifyType(StrEnum):
@@ -75,12 +77,21 @@ class Track(StrEnum):
 
     oss = "oss"
     azure = "azure"
+    github = "github"
 
 
 class BoardConfig(_Strict):
     type: BoardType
     url: str
     token_env: str = Field(description="Name of the env var holding the board API token.")
+    project_number: int | None = Field(
+        default=None,
+        description=(
+            "GitHub Project (v2) number to read Priority/Size custom fields from "
+            "(board.type=github only). If unset, falls back to the plain Issues "
+            "REST API (no priority/size)."
+        ),
+    )
 
 
 class GitConfig(_Strict):
@@ -139,10 +150,14 @@ class Config(_Strict):
     def track(self) -> Track:
         """Backend family, auto-detected from the board type.
 
-        board/git types are expected to agree (both OSS or both Azure); the
-        loader validates that. The board is treated as the source of truth.
+        board/git types are expected to agree (all OSS, all Azure, or all GitHub);
+        the loader validates that. The board is treated as the source of truth.
         """
-        return Track.azure if self.board.type is BoardType.azure_boards else Track.oss
+        if self.board.type is BoardType.azure_boards:
+            return Track.azure
+        if self.board.type is BoardType.github:
+            return Track.github
+        return Track.oss
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +167,7 @@ class Config(_Strict):
 # board.type <-> git.type must belong to the same backend family.
 _OSS_GIT = {GitType.gitea}
 _AZURE_GIT = {GitType.azure_repos}
+_GITHUB_GIT = {GitType.github}
 
 
 class ConfigError(Exception):
@@ -174,12 +190,17 @@ def _format_validation_error(exc: ValidationError) -> str:
     return "\n".join(lines)
 
 
+_GIT_FAMILY_FOR_BOARD: dict[BoardType, tuple[set[GitType], str]] = {
+    BoardType.azure_boards: (_AZURE_GIT, "azure_repos"),
+    BoardType.github: (_GITHUB_GIT, "github"),
+    BoardType.plane: (_OSS_GIT, "gitea"),
+}
+
+
 def _check_track_agrees(config: Config) -> None:
     """Board and git must target the same backend family."""
-    board_is_azure = config.board.type is BoardType.azure_boards
-    git_family = _AZURE_GIT if board_is_azure else _OSS_GIT
+    git_family, expected = _GIT_FAMILY_FOR_BOARD[config.board.type]
     if config.git.type not in git_family:
-        expected = "azure_repos" if board_is_azure else "gitea"
         raise ConfigError(
             f"board.type is '{config.board.type.value}' but git.type is "
             f"'{config.git.type.value}' — they must be the same track.",

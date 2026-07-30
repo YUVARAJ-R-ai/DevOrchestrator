@@ -1,0 +1,156 @@
+<mxfile host="app.diagrams.net" agent="devorchestrator-docs" version="24.0.0">
+  <diagram id="devorchestrator-arch" name="High-Level Architecture">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ================= Swimlane: Developer Machine ================= -->
+        <mxCell id="lane_dev" value="Developer machine (x N devs)" style="swimlane;rounded=1;whiteSpace=wrap;html=1;startSize=28;fillColor=#F5F7FA;strokeColor=#4A5468;fontColor=#333333;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="260" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="cli" value="devorchestrator CLI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#4A5468;" vertex="1" parent="lane_dev">
+          <mxGeometry x="30" y="40" width="200" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="cfg" value="devOrchestrator.yaml + .env" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#4A5468;fontFamily=Courier New;fontSize=11;" vertex="1" parent="lane_dev">
+          <mxGeometry x="30" y="100" width="200" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="research" value="tmux: research pane&#10;claude -p -&gt; artifact.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#4A5468;fontSize=11;" vertex="1" parent="lane_dev">
+          <mxGeometry x="30" y="220" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="impl" value="tmux: impl pane&#10;claude -p implements artifact" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#4A5468;fontSize=11;" vertex="1" parent="lane_dev">
+          <mxGeometry x="30" y="300" width="200" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Swimlane: Ports (contracts.py) ================= -->
+        <mxCell id="lane_ports" value="contracts.py &#8212; frozen Protocols (the ports)" style="swimlane;rounded=1;whiteSpace=wrap;html=1;startSize=28;fillColor=#E9FBF7;strokeColor=#1A8F7F;fontColor=#0F5F54;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="360" y="40" width="260" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="p_board" value="BoardAdapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="40" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="p_git" value="GitAdapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="86" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="p_agent" value="AgentSession" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="132" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="p_check" value="CheckRunner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="178" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="p_mesh" value="Mesh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="224" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="p_notify" value="Notifier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D3F4EC;strokeColor=#1A8F7F;" vertex="1" parent="lane_ports">
+          <mxGeometry x="30" y="270" width="200" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Swimlane: Adapters ================= -->
+        <mxCell id="lane_adapt" value="Adapters &#8212; swappable implementations" style="swimlane;rounded=1;whiteSpace=wrap;html=1;startSize=28;fillColor=#F5F7FA;strokeColor=#6B7385;fontColor=#333333;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="680" y="40" width="280" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="a_board" value="GithubBoard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#6B7385;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="40" width="220" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="a_git" value="GithubGit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#6B7385;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="86" width="220" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="a_agent" value="ClaudeSession" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#6B7385;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="132" width="220" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="a_check" value="ruff + gitleaks + pytest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#6B7385;fontSize=11;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="178" width="220" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="a_mesh" value="SqliteMesh  (swap point)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE7D3;strokeColor=#C85F1E;dashed=1;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="224" width="220" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="a_notify" value="MattermostNotifier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAED;strokeColor=#6B7385;" vertex="1" parent="lane_adapt">
+          <mxGeometry x="30" y="270" width="220" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Swimlane: External Services ================= -->
+        <mxCell id="lane_ext" value="External services" style="swimlane;rounded=1;whiteSpace=wrap;html=1;startSize=28;fillColor=#FFF3E9;strokeColor=#C85F1E;fontColor=#8A4212;fontStyle=1;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="40" width="240" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="gh" value="GitHub&#10;Issues * Projects * PRs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0C2;strokeColor=#C85F1E;fontSize=11;" vertex="1" parent="lane_ext">
+          <mxGeometry x="20" y="50" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="mm" value="Mattermost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0C2;strokeColor=#C85F1E;" vertex="1" parent="lane_ext">
+          <mxGeometry x="20" y="140" width="200" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="orouter" value="OpenRouter&#10;DeepSeek V4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0C2;strokeColor=#C85F1E;fontSize=11;" vertex="1" parent="lane_ext">
+          <mxGeometry x="20" y="220" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="meshdb" value="mesh.db&#10;SQLite - WAL" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#FFE0C2;strokeColor=#C85F1E;fontSize=11;" vertex="1" parent="lane_ext">
+          <mxGeometry x="55" y="310" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Edges: CLI -> Ports ================= -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="cli" target="p_board">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="cli" target="p_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="cli" target="p_mesh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="cli" target="p_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="cli" target="p_notify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="research" target="p_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4A5468;" edge="1" parent="1" source="impl" target="p_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Edges: Adapters -.satisfies.-> Ports ================= -->
+        <mxCell id="s1" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_board" target="p_board">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_git" target="p_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_agent" target="p_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_check" target="p_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_mesh" target="p_mesh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="satisfies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#1A8F7F;fontColor=#1A8F7F;fontSize=10;startArrow=none;endArrow=block;" edge="1" parent="1" source="a_notify" target="p_notify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Edges: Adapters -> External ================= -->
+        <mxCell id="x1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#C85F1E;" edge="1" parent="1" source="a_board" target="gh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#C85F1E;" edge="1" parent="1" source="a_git" target="gh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#C85F1E;" edge="1" parent="1" source="a_mesh" target="meshdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#C85F1E;" edge="1" parent="1" source="a_notify" target="mm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="x5" value="PR description" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;strokeColor=#C85F1E;fontColor=#C85F1E;fontSize=10;" edge="1" parent="1" source="a_agent" target="orouter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Note ================= -->
+        <mxCell id="note" value="Only the Adapters column is backend-specific. Swapping SqliteMesh for Postgres (or a graph store)&#10;later is one new file + a one-line factory change in pipeline.py &#8212; contracts.py never changes." style="text;html=1;align=left;verticalAlign=top;fontColor=#5B6472;fontSize=12;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="900" height="40" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

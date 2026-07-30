@@ -152,9 +152,10 @@ docker compose up -d          # Plane + Gitea + Woodpecker CI + Coolify + Matter
 **Each dev, once:**
 ```bash
 uvx install devorchestrator                     # or: pip install devorchestrator
-cp devOrchestrator.yaml.template devOrchestrator.yaml
-# fill in: name, role, agent — set token env vars in .env
-devorchestrator init                            # tests connections, registers in the mesh
+devorchestrator init                            # scaffolds devOrchestrator.yaml + .env
+                                                 # interactively if missing, tests the
+                                                 # GitHub connection for real, registers
+                                                 # in the mesh
 ```
 
 **Every task:**

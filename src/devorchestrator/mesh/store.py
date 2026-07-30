@@ -2,9 +2,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import httpx
 from supabase import Client as SupabaseClient
+from supabase import ClientOptions, create_client
 
 from devorchestrator.contracts import Decision, DevActivity, Mesh
+
+
+def create_supabase_client(url: str, key: str) -> SupabaseClient:
+    """Build a Supabase client forced to HTTP/1.1 (avoids HTTP/2 stream resets)."""
+    return create_client(
+        url, key,
+        options=ClientOptions(
+            httpx_client=httpx.Client(transport=httpx.HTTPTransport()),
+        ),
+    )
 
 
 class SupabaseMesh(Mesh):
@@ -45,7 +57,7 @@ class SupabaseMesh(Mesh):
                 event_type=row["event_type"],
                 ts=row["ts"],
             )
-            for row in (result.get("data") or [])
+            for row in (result.data or [])
         ]
 
     def recent_decisions(self, limit: int = 10) -> list[Decision]:
@@ -64,7 +76,7 @@ class SupabaseMesh(Mesh):
                 affected_modules=tuple(row["payload"].get("modules", [])),
                 ts=row["ts"],
             )
-            for row in (result.get("data") or [])
+            for row in (result.data or [])
         ]
 
 

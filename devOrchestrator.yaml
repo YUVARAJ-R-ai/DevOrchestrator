@@ -1,0 +1,26 @@
+name: tharun
+role: dev
+agent: claude
+
+board:
+  type: plane
+  url: https://plane.team.internal
+  token_env: PLANE_API_KEY
+
+git:
+  type: gitea
+  url: https://gitea.team.internal
+  token_env: GITEA_TOKEN
+
+brain:
+  provider: openrouter
+  model: deepseek/deepseek-v4-flash
+  token_env: OPENROUTER_API_KEY
+
+notify:
+  type: mattermost
+  webhook_env: MATTERMOST_WEBHOOK
+
+mesh:
+  supabase_url: https://kbyfjilxjoqrpnlkekqy.supabase.co
+  supabase_key_env: SUPABASE_SERVICE_KEY

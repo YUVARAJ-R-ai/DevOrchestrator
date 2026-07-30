@@ -85,10 +85,10 @@ def init(
         console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
 
     if migrate and config.mesh.supabase_url:
-        from .mesh.migrate import apply as _apply_migration
-        key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
-        if key:
-            _apply_migration(config.mesh.supabase_url, key)
+        dsn = __import__("os").environ.get("SUPABASE_DSN", "")
+        if dsn:
+            from .mesh.migrate import apply as _apply_migration
+            _apply_migration(dsn)
             console.print("[green]✓ migration applied[/]")
         else:
             console.print(f"[red]✗ ${config.mesh.supabase_key_env} not set — cannot migrate[/]")
@@ -127,14 +127,13 @@ def pr(
         results = runner.run_all()
         SubprocessCheckRunner.render(results)
 
-    from supabase import create_client
-
-    from .mesh.store import SupabaseMesh
+    from .mesh.store import SupabaseMesh, create_supabase_client
     from .pr_description import generate_pr_description, save_pr_description
 
     branch = _detect_branch()
-    if not results or all(r.passed for r in results):
-        mesh = SupabaseMesh(create_client(config.mesh.supabase_url, ""))
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    if not results or all(r.passed for r in results) and key:
+        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
         mesh.emit("pr_pass", "pr", {"dev": config.name})
 
     desc = generate_pr_description(branch)
@@ -187,12 +186,11 @@ def status(ctx: typer.Context) -> None:
 def mesh(ctx: typer.Context) -> None:
     """Show the live team activity table from the shared context mesh."""
     config = _load_or_exit(ctx, check_env=False)
-    from supabase import create_client
-
     from .mesh.dashboard import render_dashboard
-    from .mesh.store import SupabaseMesh
+    from .mesh.store import SupabaseMesh, create_supabase_client
 
-    client = create_client(config.mesh.supabase_url, "")
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    client = create_supabase_client(config.mesh.supabase_url, key)
     mesh_inst = SupabaseMesh(client)
     render_dashboard(mesh_inst)
 
@@ -205,11 +203,10 @@ def decision(
 ) -> None:
     """Log an architectural decision into the shared mesh, visible to the whole team."""
     config = _load_or_exit(ctx, check_env=False)
-    from supabase import create_client
+    from .mesh.store import SupabaseMesh, create_supabase_client
 
-    from .mesh.store import SupabaseMesh
-
-    client = create_client(config.mesh.supabase_url, "")
+    key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+    client = create_supabase_client(config.mesh.supabase_url, key)
     mesh_inst = SupabaseMesh(client)
     mesh_inst.emit("decision", module, {
         "dev": config.name,

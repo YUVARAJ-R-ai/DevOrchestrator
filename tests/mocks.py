@@ -65,6 +65,16 @@ def make_runner(
 # ---------------------------------------------------------------------------
 
 
+class _MockAPIResponse:
+    """Mimics ``postgrest.APIResponse`` — has a ``.data`` attribute."""
+
+    def __init__(self, data: list[dict[str, Any]]) -> None:
+        self.data = data
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+
 @dataclass
 class MockSupabaseTable:
     """Mock a ``supabase.table(...)`` chain."""
@@ -92,8 +102,8 @@ class MockSupabaseTable:
         self.rows = self.rows[:n]
         return self
 
-    def execute(self) -> dict[str, Any]:
-        return {"data": self.rows}
+    def execute(self) -> _MockAPIResponse:
+        return _MockAPIResponse(self.rows)
 
     def single(self) -> dict[str, Any] | None:
         return self.rows[0] if self.rows else None

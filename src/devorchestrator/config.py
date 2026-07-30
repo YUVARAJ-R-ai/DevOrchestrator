@@ -23,10 +23,14 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+if TYPE_CHECKING:
+    from devorchestrator.notify import HttpxNotifier
 
 CONFIG_FILENAME = "devOrchestrator.yaml"
 
@@ -96,6 +100,14 @@ class BrainConfig(_Strict):
 class NotifyConfig(_Strict):
     type: NotifyType
     webhook_env: str = Field(description="Name of the env var holding the notify webhook URL.")
+
+    def build_notifier(self) -> HttpxNotifier | None:
+        """Build a notifier from this config, or None if the webhook env is unset."""
+        url = os.environ.get(self.webhook_env)
+        if not url:
+            return None
+        from devorchestrator.notify import HttpxNotifier
+        return HttpxNotifier(self.webhook_env)
 
 
 class MeshConfig(_Strict):

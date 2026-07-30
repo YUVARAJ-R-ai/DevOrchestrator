@@ -84,3 +84,34 @@
 - **Supabase migrations** — The `events` and `devs` table schemas need a migration script for new Supabase projects
 - **Distinct module discovery** — `mesh/dashboard.py` uses a hard-coded module list; should query `SELECT DISTINCT module FROM events`
 - **Type checking** — `pyproject.toml` has no `[tool.pyright]` or `py.typed`; add once the repo adopts a type checker
+
+---
+
+## Session: P0 — Interoperability wiring + merge to `dev`
+
+### Decision 1: NotifyConfig.build_notifier() factory
+- **Context**: `HttpxNotifier` constructor takes `webhook_env: str` and reads the env var internally. The config has `NotifyConfig.webhook_env` but no caller used it to construct a notifier.
+- **Implementation**: Added `NotifyConfig.build_notifier() -> HttpxNotifier | None` that reads the env var name from config and returns a configured notifier (or `None` if the env var is unset). Wired into `cli.py`'s `pr` command — team gets a webhook notification on check pass/fail.
+- **Why**: Keeps the env-var-name pattern consistent with the rest of the config layer; the pipeline always constructs services from config, never by hand.
+
+### Decision 2: Conflict detector — lightweight, non-blocking
+- **Context**: Sprint 3 calls for a conflict detector (#39) that warns when two devs touch the same module. The mesh already has `who_is_touching()`.
+- **Implementation**: `mesh/conflict.py` — pure function `warn_on_overlap(mesh, modules, limit) -> list[str]`. Purely advisory (returns warning strings, caller decides). Deduplicates multiple events from the same (dev, module) pair. Wired into `devorchestrator mesh --check <modules>` and auto-triggered after `devorchestrator decision`.
+- **Why**: Lightweight and non-blocking matches the sprint spec ("Not a block — prints warning, asks Continue?"). No new DB queries needed beyond what `who_is_touching()` already issues. The `--check` flag makes it usable from any context.
+- **Tests**: 5 tests covering empty, single, multi-module, dedup, and limit behavior.
+
+### Decision 3: Merge strategy — fast-forward from feature/mesh-gates into dev
+- **Context**: `feature/mesh-gates` has 3 commits ahead of `dev` with no diverging history (dev has 0 commits that the feature branch doesn't). All Lane D code is additive (new files + config schema changes).
+- **Implementation**: `git checkout dev && git merge feature/mesh-gates` — clean fast-forward. No merge commit, no conflict resolution needed.
+- **Why**: Fast-forward keeps the linear history clean. The schema change (`MeshConfig`: `db_path` → `supabase_url` + `supabase_key_env`) is backward-incompatible, but `dev` never had those fields in production — the only `devOrchestrator.yaml` lives on `feature/mesh-gates`.
+
+## Files created/modified this session
+
+| File | Action | Decision |
+|------|--------|----------|
+| `src/devorchestrator/config.py` | Added `build_notifier()`, `TYPE_CHECKING` import | #1 |
+| `src/devorchestrator/cli.py` | Wired notifier in `pr` command, `--check` on `mesh`, conflict warn in `decision` | #1, #2 |
+| `src/devorchestrator/mesh/conflict.py` | Created — `warn_on_overlap()` | #2 |
+| `tests/test_conflict.py` | Created — 5 tests | #2 |
+| `tests/test_config.py` | Added 2 notifier factory tests | #1 |
+| `docs/DECISIONS.md` | Updated this session | #3 |

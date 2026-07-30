@@ -136,6 +136,12 @@ def pr(
         mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
         mesh.emit("pr_pass", "pr", {"dev": config.name})
 
+    if config.notify:
+        notifier = config.notify.build_notifier()
+        if notifier:
+            status = "passed" if not results or all(r.passed for r in results) else "failed"
+            notifier.notify(f"`devorchestrator pr` checks {status} on {branch} ({config.name})")
+
     desc = generate_pr_description(branch)
     out = save_pr_description(desc, branch)
     console.print(f"[green]PR description saved to {out}[/]")
@@ -183,15 +189,32 @@ def status(ctx: typer.Context) -> None:
 
 
 @app.command()
-def mesh(ctx: typer.Context) -> None:
+def mesh(
+    ctx: typer.Context,
+    check: list[str] = typer.Option(
+        [], "--check", "-c", help="Check if any of these modules have overlapping activity.",
+    ),
+) -> None:
     """Show the live team activity table from the shared context mesh."""
     config = _load_or_exit(ctx, check_env=False)
+    from .mesh.conflict import warn_on_overlap
     from .mesh.dashboard import render_dashboard
     from .mesh.store import SupabaseMesh, create_supabase_client
 
     key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
     client = create_supabase_client(config.mesh.supabase_url, key)
     mesh_inst = SupabaseMesh(client)
+
+    if check:
+        warnings = warn_on_overlap(mesh_inst, check)
+        if warnings:
+            console.print("[bold]Module overlap warnings:[/]")
+            for w in warnings:
+                console.print(w)
+            console.print()
+        else:
+            console.print("[green]✓ No overlapping activity detected[/]\n")
+
     render_dashboard(mesh_inst)
 
 
@@ -214,6 +237,14 @@ def decision(
         "modules": [module],
     })
     console.print(f"[green]Decision logged:[/] {message}")
+
+    from .mesh.conflict import warn_on_overlap
+    warnings = warn_on_overlap(mesh_inst, [module])
+    if warnings:
+        console.print()
+        console.print("[yellow]Note: overlapping activity on this module:[/]")
+        for w in warnings:
+            console.print(w)
 
 
 def main() -> None:

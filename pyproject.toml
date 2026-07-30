@@ -1,0 +1,57 @@
+[project]
+name = "devorchestrator"
+version = "0.1.0"
+description = "The AI-native SDLC operating layer — task to deployed code, with the human in the loop."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "YUVARAJ-R-ai" }]
+keywords = ["sdlc", "automation", "claude-code", "orchestrator", "ai-agents"]
+
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# Pulled in by later lanes (mesh, tmux sessions). Declared here so the spine
+# documents the intended surface; not required to run the CLI skeleton.
+agent = ["libtmux>=0.35"]
+brain = ["openai>=1.30"]
+
+[project.scripts]
+devorchestrator = "devorchestrator.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/YUVARAJ-R-ai/DevOrchestrator"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/devorchestrator"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer's API requires Option/Argument as call-valued argument defaults.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

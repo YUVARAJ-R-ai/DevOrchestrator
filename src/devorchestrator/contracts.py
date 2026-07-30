@@ -187,11 +187,23 @@ class BoardAdapter(Protocol):
 
 @runtime_checkable
 class GitAdapter(Protocol):
-    """Git server (Gitea / Azure Repos). Implemented by Lane B."""
+    """Git server (Gitea / Azure Repos). Implemented by Lane B.
+
+    The first three methods drive `start`/`pr`; the review methods below drive the
+    TL approval gate (`review.py`). All are additive — a Lane B adapter that only
+    needs the pipeline can implement the first three and stub the rest until review
+    is wired.
+    """
 
     def create_branch(self, issue: Issue, base: str = "dev") -> BranchRef: ...
     def open_pr(self, branch: BranchRef, title: str, body: str) -> PullRequest: ...
     def merge_pr(self, pr: PullRequest, strategy: MergeStrategy) -> None: ...
+
+    # -- review flow --
+    def list_open_prs(self, assignee: str | None = None) -> list[PullRequest]: ...
+    def get_diff(self, pr: PullRequest) -> str: ...
+    def get_ci_status(self, pr: PullRequest) -> str: ...
+    def comment_pr(self, pr: PullRequest, body: str) -> None: ...
 
 
 @runtime_checkable

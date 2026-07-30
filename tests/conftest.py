@@ -54,10 +54,21 @@ class FakeBoard:
 
 
 class FakeGit:
-    def __init__(self, branch: BranchRef) -> None:
+    def __init__(
+        self,
+        branch: BranchRef,
+        *,
+        open_prs: list[PullRequest] | None = None,
+        diff: str = "",
+        ci: str = "unknown",
+    ) -> None:
         self._branch = branch
+        self._open_prs = open_prs or []
+        self._diff = diff
+        self._ci = ci
         self.merged: list[tuple[PullRequest, MergeStrategy]] = []
         self.opened: PullRequest | None = None
+        self.comments: list[tuple[PullRequest, str]] = []
 
     def create_branch(self, issue: Issue, base: str = "dev") -> BranchRef:
         return self._branch
@@ -68,6 +79,19 @@ class FakeGit:
 
     def merge_pr(self, pr: PullRequest, strategy: MergeStrategy) -> None:
         self.merged.append((pr, strategy))
+
+    # -- review flow --
+    def list_open_prs(self, assignee: str | None = None) -> list[PullRequest]:
+        return self._open_prs
+
+    def get_diff(self, pr: PullRequest) -> str:
+        return self._diff
+
+    def get_ci_status(self, pr: PullRequest) -> str:
+        return self._ci
+
+    def comment_pr(self, pr: PullRequest, body: str) -> None:
+        self.comments.append((pr, body))
 
 
 class FakeSession:

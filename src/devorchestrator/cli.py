@@ -154,7 +154,13 @@ def _required_env_vars(raw: dict) -> list[tuple[str, str, bool, str]]:
 
 
 def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) -> None:
-    """Prompt only for vars this config references that aren't already in .env."""
+    """Prompt for every var this config references, every time.
+
+    Shows whether one's already set so Enter keeps it — but always asks,
+    rather than silently trusting whatever's already in .env. A stale or
+    placeholder value sitting there (e.g. a token that was never actually
+    filled in) would otherwise never get surfaced or corrected.
+    """
     existing: dict[str, str] = {}
     if env_path.is_file():
         for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -165,11 +171,17 @@ def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) ->
 
     changed = False
     for var, label, secret, default in required:
-        if existing.get(var):
-            continue
-        value = typer.prompt(label, default="", show_default=False, hide_input=secret)
-        existing[var] = value or default
-        changed = True
+        current = existing.get(var, "")
+        suffix = " [Enter to keep the current value]" if current else ""
+        value = typer.prompt(f"{label}{suffix}", default="", show_default=False, hide_input=secret)
+        if value:
+            if value != current:
+                changed = True
+            existing[var] = value
+        elif not current:
+            existing[var] = default
+            changed = True
+        # blank input with an existing value already set -> keep it, no rewrite
 
     if changed:
         env_path.write_text(

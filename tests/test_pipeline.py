@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from devorchestrator.contracts import DevActivity
+from devorchestrator.contracts import BranchRef, DevActivity, Issue, PipelineContext
 from devorchestrator.pipeline import (
     LanePending,
     Pipeline,
@@ -206,3 +206,36 @@ def test_build_pipeline_enables_local_git(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert build_pipeline(config).local_git is True
+
+
+def test_describe_pr_forwards_config_to_the_brain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """build_pipeline's describe_pr must pass config= through.
+
+    Without it generate_pr_description can't build the brain and silently returns
+    the mechanical description however the brain is configured — a failure mode
+    with no visible error, which is how a merge (7ebf5e2) undid it unnoticed.
+    """
+    monkeypatch.setenv("BOARD_TOKEN", "t")
+    monkeypatch.setenv("GIT_TOKEN", "t")
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+    seen: dict[str, object] = {}
+
+    def _spy(branch: str, base: str = "dev", *, cwd=None, config=None):
+        seen["config"] = config
+        return "body"
+
+    # Patch before build_pipeline: it does `from .pr_description import
+    # generate_pr_description` at call time and closes over that local name.
+    monkeypatch.setattr("devorchestrator.pr_description.generate_pr_description", _spy)
+    pipeline = build_pipeline(config)
+
+    ctx = PipelineContext(
+        issue=Issue(id="9", title="t"),
+        branch=BranchRef(name="feature/issue-9-t", issue_id="9", base="dev"),
+    )
+    pipeline._describe_pr(ctx)
+
+    assert seen["config"] is config

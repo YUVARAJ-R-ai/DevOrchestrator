@@ -408,6 +408,9 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         checks=checks,
         mesh=mesh,
         notifier=notifier,
+        # config= is what lets generate_pr_description reach the brain; without it
+        # it silently returns the mechanical description no matter how the brain
+        # is configured (see test_describe_pr_forwards_config_to_the_brain).
         describe_pr=lambda ctx: generate_pr_description(
             ctx.branch.name, base=ctx.branch.base, config=config
         ),

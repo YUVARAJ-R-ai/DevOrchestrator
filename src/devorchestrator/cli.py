@@ -16,6 +16,8 @@ from rich.console import Console
 
 from . import __version__
 from .config import Config, ConfigError, load_config
+from .pipeline import LanePending, build_pipeline
+from .review import build_review
 
 app = typer.Typer(
     name="devorchestrator",
@@ -30,6 +32,15 @@ def _stub(command: str, owner_lane: str) -> None:
     """Uniform 'not implemented yet' notice so the CLI is runnable today."""
     console.print(f"[yellow]›[/] [bold]{command}[/] is not implemented yet.")
     console.print(f"  Owned by lane [cyan]{owner_lane}[/]. Tracked in docs/product-backlog.md.")
+    raise typer.Exit(code=0)
+
+
+def _pending(exc: LanePending) -> None:
+    """Report that the Spine is ready but a lane's adapter hasn't landed yet."""
+    console.print(
+        f"[yellow]›[/] Spine is wired and ready — waiting on the [bold]{exc.component}[/] adapter."
+    )
+    console.print(f"  Provided by [cyan]{exc.where}[/]. Available once that lane merges.")
     raise typer.Exit(code=0)
 
 
@@ -70,27 +81,65 @@ def _root(
 
 
 @app.command()
-def init() -> None:
-    """Test all connections, register the dev in the mesh, scaffold .orchestrator/."""
-    _stub("init", owner_lane="spine/infra")
+def init(ctx: typer.Context) -> None:
+    """Validate config, scaffold .orchestrator/, and report connection readiness.
+
+    The config + workspace setup (Spine) runs now; per-service connection tests
+    (Plane/Gitea/mesh/...) light up as those lane adapters land.
+    """
+    config = _load_or_exit(ctx, check_env=False)
+    config_dir: Path = ctx.obj["config_dir"]
+    workdir = config_dir / ".orchestrator"
+    workdir.mkdir(parents=True, exist_ok=True)
+    console.print(
+        f"[green]✓[/] config valid for [bold]{config.name}[/] ({config.track.value} track)"
+    )
+    console.print(f"[green]✓[/] workspace ready at [cyan]{workdir}[/]")
+    console.print("[dim]›[/] connection tests (board/git/mesh/notify) pending their lane adapters.")
 
 
 @app.command()
-def start() -> None:
+def start(ctx: typer.Context) -> None:
     """Pick a task, create a branch, run research + implementation sessions."""
-    _stub("start", owner_lane="board+session")
+    config = _load_or_exit(ctx)  # fail loud on bad config before touching adapters
+    try:
+        pipeline = build_pipeline(config, on_event=lambda m: console.print(f"[dim]›[/] {m}"))
+    except LanePending as exc:
+        _pending(exc)
+        return
+    # TODO(wave-3): ctx_ = pipeline.start(<Lane B task selector>); pipeline.prepare_pr(ctx_)
+    _ = pipeline
 
 
 @app.command()
-def pr() -> None:
+def pr(
+    ctx: typer.Context,
+    autofix: bool = typer.Option(
+        True, "--autofix/--no-autofix", help="Re-invoke the agent to fix failing checks."
+    ),
+) -> None:
     """Run quality gates (autofix on failure), then open a PR with an AI description."""
-    _stub("pr", owner_lane="checks+pr")
+    config = _load_or_exit(ctx)
+    try:
+        pipeline = build_pipeline(config)
+    except LanePending as exc:
+        _pending(exc)
+        return
+    # TODO(wave-3): pipeline.prepare_pr(<current PipelineContext>, autofix=autofix)
+    _ = (pipeline, autofix)
 
 
 @app.command()
-def review() -> None:
+def review(ctx: typer.Context) -> None:
     """(TL) Review a PR: diff | tests | CI | artifact, then approve or reject."""
-    _stub("review", owner_lane="pr")
+    config = _load_or_exit(ctx)
+    try:
+        gate = build_review(config, console=console)
+    except LanePending as exc:
+        _pending(exc)
+        return
+    # TODO(wave-3): for pr in gate.open_prs(): gate.render(...); dispatch [a]/[r]
+    _ = gate
 
 
 @app.command()

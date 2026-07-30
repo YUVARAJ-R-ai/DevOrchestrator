@@ -86,17 +86,20 @@ def test_required_env_vars_skips_mesh_when_not_configured() -> None:
     assert "SUPABASE_SERVICE_KEY" not in names
 
 
-def test_scaffold_env_only_prompts_for_missing_vars(
+def test_scaffold_env_prompts_for_every_var_even_if_already_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A stale/placeholder value already in .env must not silently skip the prompt
+    (this was the actual bug — a leftover placeholder token was trusted instead
+    of surfaced)."""
     env_path = tmp_path / ".env"
-    env_path.write_text("GITHUB_TOKEN=already-set\n", encoding="utf-8")
+    env_path.write_text("GITHUB_TOKEN=REPLACE_ME_PLACEHOLDER\n", encoding="utf-8")
 
     prompted: list[str] = []
 
     def fake_prompt(label, **kw):
         prompted.append(label)
-        return ""  # accept the default for whatever gets prompted
+        return "a-real-token"  # simulate the user actually typing a new value
 
     monkeypatch.setattr("typer.prompt", fake_prompt)
 
@@ -106,27 +109,25 @@ def test_scaffold_env_only_prompts_for_missing_vars(
     ]
     _scaffold_env(env_path, required)
 
-    assert len(prompted) == 1  # only the missing one
+    assert len(prompted) == 2  # both prompted, even though GITHUB_TOKEN had a value
     content = env_path.read_text(encoding="utf-8")
-    assert "GITHUB_TOKEN=already-set" in content
-    assert "OPENROUTER_API_KEY=placeholder" in content
+    assert "GITHUB_TOKEN=a-real-token" in content  # replaced, not kept
+    assert "OPENROUTER_API_KEY=a-real-token" in content
 
 
-def test_scaffold_env_noop_when_nothing_missing(
+def test_scaffold_env_blank_answer_keeps_the_existing_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text("GITHUB_TOKEN=already-set\n", encoding="utf-8")
     original_mtime = env_path.stat().st_mtime_ns
 
-    def fail_if_prompted(*a, **kw):
-        raise AssertionError("should not prompt when nothing is missing")
-
-    monkeypatch.setattr("typer.prompt", fail_if_prompted)
+    monkeypatch.setattr("typer.prompt", lambda *a, **kw: "")  # user just presses Enter
 
     _scaffold_env(env_path, [("GITHUB_TOKEN", "GitHub token", True, "")])
 
-    assert env_path.stat().st_mtime_ns == original_mtime  # untouched
+    assert env_path.stat().st_mtime_ns == original_mtime  # kept, file untouched
+    assert "GITHUB_TOKEN=already-set" in env_path.read_text(encoding="utf-8")
 
 
 def _config(**board_overrides) -> Config:

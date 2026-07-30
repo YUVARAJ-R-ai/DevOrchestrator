@@ -70,9 +70,34 @@ def _root(
 
 
 @app.command()
-def init() -> None:
+def init(
+    ctx: typer.Context,
+    migrate: bool = typer.Option(False, "--migrate", help="Run Supabase schema migration."),
+) -> None:
     """Test all connections, register the dev in the mesh, scaffold .orchestrator/."""
-    _stub("init", owner_lane="spine/infra")
+    config = _load_or_exit(ctx, check_env=False)
+    console.print("[bold]DevOrchestrator init[/]")
+
+    if not config.mesh.supabase_url:
+        console.print("[yellow]⚠  mesh.supabase_url not configured — skipping mesh setup[/]")
+    else:
+        console.print(f"[green]✓ mesh url: {config.mesh.supabase_url}[/]")
+        console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
+
+    if migrate and config.mesh.supabase_url:
+        from .mesh.migrate import apply as _apply_migration
+        key = __import__("os").environ.get(config.mesh.supabase_key_env, "")
+        if key:
+            _apply_migration(config.mesh.supabase_url, key)
+            console.print("[green]✓ migration applied[/]")
+        else:
+            console.print(f"[red]✗ ${config.mesh.supabase_key_env} not set — cannot migrate[/]")
+
+    # Scaffold .orchestrator/ directory
+    _orch = Path(".orchestrator")
+    _orch.mkdir(exist_ok=True)
+    console.print(f"[green]✓ scaffolded {_orch}[/]")
+    console.print("[green]✓ init complete[/]")
 
 
 @app.command()

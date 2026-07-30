@@ -491,6 +491,9 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     git = GithubGit(
         url=config.git.url,
         token=os.environ[config.git.token_env],
+        # Requests review from this login on every PR — without it nothing is
+        # ever "awaiting review" and `devorchestrator review` lists nothing.
+        reviewer=config.git.reviewer,
     )
     research = ClaudeSession(SessionKind.research, agent=config.agent.value)
     impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)

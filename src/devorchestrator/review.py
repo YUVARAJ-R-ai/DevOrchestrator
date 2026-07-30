@@ -4,13 +4,12 @@ Lane A's ``review.py`` (backlog #29–31). Renders what a team lead needs to dec
 on a PR — the diff, the check results, and the artifact (what was *planned* vs what
 was built) — then performs the approve (merge) or reject (comment + notify) action.
 
-**Contract note (frozen `contracts.py` gap):** the review flow needs four methods
-the current ``GitAdapter`` Protocol does not yet expose:
-``list_open_prs(assignee)``, ``get_diff(pr)``, ``get_ci_status(pr)``, and
-``comment_pr(pr, body)``. Until those are added to the frozen contract (Lane A's
-call, everyone pulls), this gate takes the diff / checks / artifact as **inputs**
-(the CLI or Lane B fetches them) and posts rejection feedback via the ``Notifier``.
-Approve uses ``GitAdapter.merge_pr``, which *is* in the contract.
+Uses the review methods added to the ``GitAdapter`` contract — ``list_open_prs``,
+``get_diff``, ``get_ci_status``, ``comment_pr`` — so this gate can fetch everything
+it needs itself: :meth:`ReviewGate.open_prs` lists the PRs awaiting the TL and
+:meth:`ReviewGate.review_pr` pulls the diff + CI, renders, and is ready for the
+CLI to dispatch the keypress. ``render`` still accepts pre-fetched inputs for
+tests and callers that already have them.
 """
 
 from __future__ import annotations
@@ -65,6 +64,23 @@ class ReviewGate:
         self.console = console or Console()
         self.merge_strategy = merge_strategy
 
+    # -- fetching ---------------------------------------------------------
+
+    def open_prs(self) -> list[PullRequest]:
+        """PRs awaiting this reviewer (the TL). Empty list if none."""
+        return self.git.list_open_prs(assignee=self.config.name)
+
+    def review_pr(self, pr: PullRequest, checks: list[CheckResult],
+                  artifact: Artifact | None = None) -> None:
+        """Fetch the diff + CI for ``pr`` and render the full review view.
+
+        The check results and artifact come from the pipeline run (the CLI holds
+        them); the diff and CI status are pulled fresh from the git server here.
+        """
+        diff = self.git.get_diff(pr)
+        ci_status = self.git.get_ci_status(pr)
+        self.render(pr, diff=diff, checks=checks, artifact=artifact, ci_status=ci_status)
+
     # -- presentation -----------------------------------------------------
 
     def render(
@@ -115,11 +131,8 @@ class ReviewGate:
         return ReviewDecision(action="approved", pr=pr)
 
     def reject(self, pr: PullRequest, reason: str) -> ReviewDecision:
-        """Reject the PR: notify the dev with the reason.
-
-        (Posting the reason as an on-PR comment needs ``GitAdapter.comment_pr``,
-        which is not in the frozen contract yet — see the module docstring.)
-        """
+        """Reject the PR: post the reason as an on-PR comment and notify the dev."""
+        self.git.comment_pr(pr, f"Changes requested: {reason}")
         self._emit("pr_rejected", module=pr.branch, payload={
             "pr_number": pr.number, "reason": reason, "by": self.config.name,
         })

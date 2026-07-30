@@ -27,8 +27,8 @@ def _pr() -> PullRequest:
     )
 
 
-def _gate(**over) -> tuple[ReviewGate, FakeGit, FakeMesh, FakeNotifier]:
-    git = FakeGit(branch=None)  # merge_pr/branch not needed to construct
+def _gate(git: FakeGit | None = None, **over) -> tuple[ReviewGate, FakeGit, FakeMesh, FakeNotifier]:
+    git = git or FakeGit(branch=None)  # branch not needed for review-only tests
     mesh, notifier = FakeMesh(), FakeNotifier()
     console = Console(file=io.StringIO(), force_terminal=False)
     gate = ReviewGate(make_config(), git=git, mesh=mesh, notifier=notifier, console=console, **over)
@@ -53,15 +53,30 @@ def test_approve_uses_configured_strategy():
     assert git.merged[0][1] == MergeStrategy.rebase
 
 
-def test_reject_notifies_with_reason():
+def test_reject_comments_notifies_with_reason():
     gate, git, mesh, notifier = _gate()
     decision = gate.reject(_pr(), reason="needs tests")
 
     assert decision.action == "rejected"
     assert decision.reason == "needs tests"
     assert not git.merged  # reject never merges
+    # posts an on-PR comment carrying the reason
+    assert len(git.comments) == 1
+    assert "needs tests" in git.comments[0][1]
     assert any(e[0] == "pr_rejected" for e in mesh.events)
     assert any("rejected" in m and "needs tests" in m for m in notifier.messages)
+
+
+def test_open_prs_returns_git_prs():
+    prs = [_pr()]
+    gate, _, _, _ = _gate(FakeGit(branch=None, open_prs=prs))
+    assert gate.open_prs() == prs
+
+
+def test_review_pr_fetches_diff_and_ci_then_renders():
+    gate, _, _, _ = _gate(FakeGit(branch=None, diff="- a\n+ b\n", ci="green"))
+    # should pull diff + CI from git and render without raising
+    gate.review_pr(_pr(), checks=[passing("ruff"), failing("pytest")])
 
 
 def test_render_does_not_raise():

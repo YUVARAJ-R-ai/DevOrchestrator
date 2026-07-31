@@ -114,6 +114,13 @@ class Pipeline:
         Returns the populated :class:`PipelineContext`. Raises
         :class:`PipelineAborted` if no task is chosen.
         """
+        # Checked before anything else: _commit_and_push stages with `git add -A`,
+        # so pre-existing edits would be swept into the AI's commit and attributed
+        # to this issue. Failing here costs nothing; failing after the sessions
+        # have run would throw away real work.
+        if self.local_git:
+            self._require_clean_tree()
+
         issues = self.board.fetch_issues()
         if not issues:
             raise PipelineAborted("no open tasks assigned to you on the board.")
@@ -247,6 +254,23 @@ class Pipeline:
         )
         self._git(["push", "-u", "origin", branch.name], f"could not push {branch.name}")
         self._event(f"committed and pushed to {branch.name}")
+
+    def _require_clean_tree(self) -> None:
+        """Refuse to start with uncommitted changes lying around.
+
+        Raises :class:`PipelineAborted` — this is a "you need to do something
+        first", not a failure of the run.
+        """
+        status = self._git(["status", "--porcelain"], "could not read git status")
+        dirty = [line for line in status.stdout.splitlines() if line.strip()]
+        if not dirty:
+            return
+        preview = "\n".join(f"    {line}" for line in dirty[:10])
+        more = f"\n    …and {len(dirty) - 10} more" if len(dirty) > 10 else ""
+        raise PipelineAborted(
+            "working tree is not clean — commit or stash these first, or they "
+            f"will be committed as part of this task:\n{preview}{more}"
+        )
 
     @staticmethod
     def _git(args: list[str], what_failed: str) -> subprocess.CompletedProcess[str]:

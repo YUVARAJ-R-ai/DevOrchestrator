@@ -360,3 +360,41 @@ def test_git_helper_returns_result_on_success(tmp_path, branch, issue, monkeypat
 
     monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
     assert pipe._git(["status"], "boom").stdout == "ok"
+
+
+def test_start_refuses_to_run_on_a_dirty_tree(tmp_path, branch, issue, monkeypatch):
+    """git add -A would sweep unrelated edits into the AI's commit."""
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout=" M unrelated_file.py\n", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    with pytest.raises(PipelineAborted, match="not clean"):
+        pipe.start(select=lambda issues: issues[0])
+    # aborted before doing any work
+    assert research.prompts == []
+
+
+def test_start_proceeds_on_a_clean_tree(tmp_path, branch, issue, monkeypatch):
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    pipe.start(select=lambda issues: issues[0])
+    assert len(research.prompts) == 1
+
+
+def test_clean_tree_not_checked_when_local_git_is_off(tmp_path, branch, issue):
+    """Without local_git nothing commits, so the tree state is irrelevant."""
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)  # local_git defaults False
+    pipe.start(select=lambda issues: issues[0])
+    assert len(research.prompts) == 1

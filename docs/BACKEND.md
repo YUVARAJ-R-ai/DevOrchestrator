@@ -86,6 +86,8 @@ Two validations worth knowing:
 - **Track agreement** — `board.type` and `git.type` must be the same backend family. A `plane` board with a `github` git raises `ConfigError` with a fix hint, rather than failing confusingly deep inside a URL parse.
 - **Env var presence** — every `*_env` field is checked to actually exist in the environment. Missing raises `ConfigError`, never a bare `KeyError` at request time.
 
+**Secret loading.** `.env` is read from the config directory with `load_dotenv(..., override=True)` — **the file wins over existing shell exports.** That's deliberate: someone who ran `source .env` while it was still blank ends up with empty vars exported in their shell, and without `override` those stale blanks would shadow the real values forever. If you export a token deliberately and it appears not to take effect, this is why.
+
 ### `pipeline.py` — the loop
 
 ```python
@@ -263,7 +265,8 @@ Everything optional fails soft. This is a design rule, not an accident.
 
 ## 7 · Known gaps (backend-relevant)
 
-- **No HTTP API of our own.** If a web frontend needs more than the Streamlit panel, it currently imports the package directly.
+- **No HTTP API of our own.** If a web frontend needs more than the Streamlit panel, it currently imports the package directly — `frontend/app.py` calls `load_config()` and constructs a `SupabaseMesh` in-process. Its "virtual terminal" panel is a **scripted CSS preview**, not a live session; the config and mesh readouts around it are real.
+- **`version_check.py` is defined but never called.** `check_python_version((3, 12))` exists and is unit-tested, but nothing in `cli.py` or the demo script invokes it — so the guard it was written for (issue #30) isn't actually guarding anything yet.
 - **`agy` / non-Claude agents** — `Agent` enum exists, only `claude` is implemented.
 - **Rate limits** — retry with backoff exists (`RateLimited`); account rotation does not.
 - **PR bodies are written from commit subject lines, not the diff**, so the brain invents specifics. Fix belongs in `pr_description.py`.

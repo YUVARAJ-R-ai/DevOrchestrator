@@ -75,7 +75,7 @@ def test_who_is_touching_serializes_activities() -> None:
     client = _make_client()
     client.tables["events"] = MockSupabaseTable(
         rows=[
-            {"dev": "alice", "module": "runner.py", "branch": "main",
+            {"project": "", "dev": "alice", "module": "runner.py", "branch": "main",
              "event_type": "check", "ts": "2026-01-01T00:00:00"},
         ]
     )
@@ -91,9 +91,11 @@ def test_active_sessions_returns_running_only() -> None:
     client = _make_client()
     client.tables["sessions"] = MockSupabaseTable(
         rows=[
-            {"dev": "alice", "branch": "feature/x", "kind": "research", "state": "running",
+            {"project": "", "dev": "alice", "branch": "feature/x", "kind": "research",
+             "state": "running",
              "last_seen": _iso(10), "started_at": _iso(100), "finished_at": None},
-            {"dev": "bob", "branch": "feature/y", "kind": "impl", "state": "completed",
+            {"project": "", "dev": "bob", "branch": "feature/y", "kind": "impl",
+             "state": "completed",
              "last_seen": _iso(20), "started_at": _iso(200),
              "finished_at": _iso(15)},
         ]
@@ -107,7 +109,7 @@ def test_recent_decisions_serializes() -> None:
     client = _make_client()
     client.tables["events"] = MockSupabaseTable(
         rows=[
-            {"dev": "tharun", "event_type": "decision", "module": "store.py",
+            {"project": "", "dev": "tharun", "event_type": "decision", "module": "store.py",
              "payload": {"description": "use supabase", "modules": ["store.py"]},
              "ts": "2026-01-01T00:00:00"},
         ]

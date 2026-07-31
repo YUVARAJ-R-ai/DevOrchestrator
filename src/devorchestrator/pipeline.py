@@ -541,7 +541,10 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     if config.mesh.supabase_url and mesh_key:
         from .mesh.store import SupabaseMesh, create_supabase_client
 
-        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, mesh_key))
+        mesh = SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, mesh_key),
+            project=config.project_key,
+        )
 
     notifier = config.notify.build_notifier() if config.notify is not None else None
 

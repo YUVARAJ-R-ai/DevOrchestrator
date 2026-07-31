@@ -82,7 +82,10 @@ def _mesh_or_exit(config: Config):
     from .mesh.store import SupabaseMesh, create_supabase_client
 
     try:
-        return SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+        return SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, key),
+            project=config.project_key,
+        )
     except Exception as exc:  # noqa: BLE001 - client construction, any failure is fatal here
         console.print(f"[red]✗[/] could not connect to the mesh: {exc}")
         raise typer.Exit(code=1) from exc
@@ -397,7 +400,10 @@ def init(
             )
         else:
             from .mesh.store import SupabaseMesh, create_supabase_client
-            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            mesh = SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, key),
+            project=config.project_key,
+        )
             if mesh.healthy():
                 mesh.emit("dev_joined", "init", {"dev": config.name})
                 # The event is the audit trail; the devs row is the roster

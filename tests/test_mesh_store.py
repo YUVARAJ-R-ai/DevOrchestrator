@@ -29,7 +29,7 @@ def test_who_is_touching_returns_activities() -> None:
     client = _make_client()
     client.tables["events"] = MockSupabaseTable(
         rows=[
-            {"dev": "alice", "module": "runner.py", "branch": "main",
+            {"project": "", "dev": "alice", "module": "runner.py", "branch": "main",
              "event_type": "check", "ts": "2026-01-01T00:00:00"},
         ]
     )
@@ -50,7 +50,7 @@ def test_recent_decisions_returns_filtered() -> None:
     client = _make_client()
     client.tables["events"] = MockSupabaseTable(
         rows=[
-            {"dev": "tharun", "event_type": "decision", "module": "store.py",
+            {"project": "", "dev": "tharun", "event_type": "decision", "module": "store.py",
              "payload": {"description": "use supabase", "modules": ["store.py"]},
              "ts": "2026-01-01T00:00:00"},
         ]
@@ -73,9 +73,9 @@ def test_list_modules_returns_distinct_modules() -> None:
     client = _make_client()
     client.tables["events"] = MockSupabaseTable(
         rows=[
-            {"module": "runner.py"},
-            {"module": "runner.py"},
-            {"module": "store.py"},
+            {"project": "", "module": "runner.py"},
+            {"project": "", "module": "runner.py"},
+            {"project": "", "module": "store.py"},
         ]
     )
     mesh = SupabaseMesh(client)  # type: ignore[arg-type]
@@ -108,6 +108,8 @@ def _session_row(
     seconds_ago: int = 0,
 ) -> dict:
     return {
+        # rows are project-scoped (#45); these use the default unscoped project
+        "project": "",
         "dev": dev,
         "branch": branch,
         "kind": kind,
@@ -255,3 +257,53 @@ def test_register_dev_never_raises_when_the_backend_is_down():
     mesh = SupabaseMesh(_Boom())
     mesh.register_dev("harsha")  # must not raise
     assert mesh.last_error is not None
+
+
+# --- #45: project/tenant isolation ------------------------------------------
+
+
+def test_emit_stamps_the_project():
+    client = MockSupabaseClient()
+    SupabaseMesh(client, project="acme/widgets").emit("task_started", "cli.py", {"dev": "h"})
+
+    assert client.tables["events"].inserted[0]["project"] == "acme/widgets"
+
+
+def test_who_is_touching_filters_by_project():
+    """Two repos sharing a Supabase instance must not see each other."""
+    client = MockSupabaseClient()
+    client.tables["events"] = MockSupabaseTable(rows=[
+        {"project": "acme/widgets", "dev": "alice", "module": "cli.py",
+         "event_type": "task_started", "ts": "t1"},
+        {"project": "other/repo", "dev": "bob", "module": "cli.py",
+         "event_type": "task_started", "ts": "t2"},
+    ])
+
+    activity = SupabaseMesh(client, project="acme/widgets").who_is_touching("cli.py")
+
+    assert [a.dev for a in activity] == ["alice"]
+
+
+def test_register_dev_is_scoped_per_project():
+    """The same person on two repos is two roster rows, not one overwriting the other."""
+    client = MockSupabaseClient()
+    SupabaseMesh(client, project="acme/widgets").register_dev("harsha", "tl")
+    SupabaseMesh(client, project="other/repo").register_dev("harsha", "dev")
+
+    assert len(client.tables["devs"].rows) == 2
+
+
+def test_project_key_derives_from_the_repo_url():
+    from tests.conftest import make_config
+
+    https = make_config(git={"type": "github", "url": "https://github.com/acme/widgets",
+                             "token_env": "G"})
+    assert https.project_key == "acme/widgets"
+
+    dotgit = make_config(git={"type": "github", "url": "https://github.com/acme/widgets.git",
+                              "token_env": "G"})
+    assert dotgit.project_key == "acme/widgets"
+
+    ssh = make_config(git={"type": "github", "url": "git@github.com:acme/widgets.git",
+                           "token_env": "G"})
+    assert ssh.project_key == "acme/widgets"

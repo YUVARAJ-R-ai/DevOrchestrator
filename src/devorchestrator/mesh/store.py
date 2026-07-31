@@ -51,12 +51,18 @@ class SupabaseMesh(Mesh):
     """Mesh implementation backed by Supabase/Postgres.
 
     Expects three tables:
-        events(id UUID PK, dev text, module text, event_type text,
+        events(id UUID PK, project text, dev text, module text, event_type text,
                payload jsonb, ts timestamptz)
-        devs(name text PK, role text, last_seen timestamptz)
-        sessions(dev text, branch text, kind text, state text,
+        devs(project text, name text, role text, last_seen timestamptz)
+        sessions(project text, dev text, branch text, kind text, state text,
                  last_seen timestamptz, started_at timestamptz,
-                 finished_at timestamptz, payload jsonb, PK (dev, branch, kind))
+                 finished_at timestamptz, payload jsonb,
+                 PK (project, dev, branch, kind))
+
+    Every row is scoped by ``project``. The tables are shared by everything
+    pointing at the same Supabase instance, so without it two repos that both
+    have a module called ``cli.py`` would see each other's activity as a
+    conflict.
 
     **The mesh is observability, not a critical path** — like the brain, it must
     never break the loop. A bad key, a missing table, a network blip: every
@@ -65,8 +71,14 @@ class SupabaseMesh(Mesh):
     surface the state check :meth:`healthy`.
     """
 
-    def __init__(self, client: SupabaseClient) -> None:
+    def __init__(self, client: SupabaseClient, project: str = "") -> None:
+        """``project`` scopes every read and write — see Config.project_key.
+
+        Defaults to empty so an un-scoped instance still works (and reads only
+        un-scoped rows), but callers should always pass it.
+        """
         self._client = client
+        self._project = project
         self.last_error: str | None = None
 
     def healthy(self) -> bool:
@@ -83,6 +95,7 @@ class SupabaseMesh(Mesh):
     def emit(self, event_type: str, module: str, payload: dict) -> None:
         try:
             self._client.table("events").insert({
+                "project": self._project,
                 "event_type": event_type,
                 "module": module,
                 "payload": payload,
@@ -98,6 +111,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("events")
                 .select("dev", "module", "event_type", "ts")
+                .eq("project", self._project)
                 .eq("module", module)
                 .order("ts", desc=True)
                 .limit(20)
@@ -128,11 +142,12 @@ class SupabaseMesh(Mesh):
         try:
             self._client.table("devs").upsert(
                 {
+                    "project": self._project,
                     "name": name,
                     "role": role,
                     "last_seen": datetime.now(UTC).isoformat(),
                 },
-                on_conflict="name",
+                on_conflict="project,name",
             ).execute()
         except Exception as exc:  # noqa: BLE001 — roster is metadata, never fatal
             self.last_error = f"{type(exc).__name__}: {exc}"
@@ -143,6 +158,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("devs")
                 .select("name", "role", "last_seen")
+                .eq("project", self._project)
                 .order("last_seen", desc=True)
                 .execute()
             )
@@ -153,7 +169,12 @@ class SupabaseMesh(Mesh):
 
     def list_modules(self) -> list[str]:
         try:
-            result = self._client.table("events").select("module").execute()
+            result = (
+                self._client.table("events")
+                .select("module")
+                .eq("project", self._project)
+                .execute()
+            )
         except Exception as exc:  # noqa: BLE001 — reads degrade to empty
             self.last_error = f"{type(exc).__name__}: {exc}"
             return []
@@ -169,6 +190,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("events")
                 .select("*")
+                .eq("project", self._project)
                 .eq("event_type", "decision")
                 .order("ts", desc=True)
                 .limit(limit)
@@ -194,6 +216,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("sessions")
                 .select("*")
+                .eq("project", self._project)
                 .order("last_seen", desc=True)
                 .execute()
             )
@@ -217,6 +240,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("sessions")
                 .select("*")
+                .eq("project", self._project)
                 .order("last_seen", desc=True)
                 .execute()
             )

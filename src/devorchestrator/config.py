@@ -162,6 +162,20 @@ class Config(_Strict):
     )
 
     @property
+    def project_key(self) -> str:
+        """Stable identifier for this project's mesh rows, e.g. ``acme/widgets``.
+
+        The mesh's tables are shared by everything pointing at the same Supabase
+        instance, so every row is scoped by this. Derived from ``git.url`` rather
+        than being another config field to fill in — two checkouts of the same
+        repo must agree on it without anyone remembering to.
+        """
+        path = self.git.url.rstrip("/").removesuffix(".git")
+        # Works for https://host/owner/repo and git@host:owner/repo alike.
+        segments = [s for s in path.replace(":", "/").split("/") if s]
+        return "/".join(segments[-2:]) if len(segments) >= 2 else (segments[-1] if segments else "")
+
+    @property
     def track(self) -> Track:
         """Backend family, auto-detected from the board type.
 

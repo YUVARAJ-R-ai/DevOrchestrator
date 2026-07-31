@@ -213,3 +213,34 @@ def test_pipeline_works_through_real_tmux(tmp_path, agent):
     finally:
         research.kill()
         impl.kill()
+
+
+def test_session_emits_lifecycle_events_to_mesh(tmp_path, agent):
+    """#56: a session reports session_started + session_ended (with kind, dev,
+    duration, files_touched) to the mesh — so the source of truth is session-level."""
+    mesh = FakeMesh()
+    session = _session(
+        SessionKind.research, tmp_path, agent, mesh=mesh, dev="yuvaraj", heartbeat_interval=0.05
+    )
+    artifact = tmp_path / "feature/issue-9-widget/artifact.md"
+
+    session.run(f"research session — write the plan to {artifact}")
+
+    kinds = [e[0] for e in mesh.events]
+    assert "session_started" in kinds
+    assert "session_ended" in kinds
+    assert kinds.index("session_started") < kinds.index("session_ended")
+
+    ended = next(p for et, _m, p in mesh.events if et == "session_ended")
+    assert ended["kind"] == "research"
+    assert ended["dev"] == "yuvaraj"
+    assert ended["ok"] is True
+    assert "duration_s" in ended and "files_touched" in ended
+
+
+def test_session_lifecycle_is_a_noop_without_mesh(tmp_path, agent):
+    """No mesh injected → tracking silently does nothing, run() still works."""
+    session = _session(SessionKind.research, tmp_path, agent)  # no mesh
+    artifact = tmp_path / "feature/issue-9-widget/artifact.md"
+    session.run(f"research session — write the plan to {artifact}")
+    assert artifact.is_file()  # ran fine, no crash

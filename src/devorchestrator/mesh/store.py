@@ -117,6 +117,40 @@ class SupabaseMesh(Mesh):
             for row in (result.data or [])
         ]
 
+    def register_dev(self, name: str, role: str = "dev") -> None:
+        """Upsert this developer into ``devs`` and refresh ``last_seen``.
+
+        The table shipped in schema.sql from the start but nothing ever wrote to
+        it, so the roster it exists for had to be inferred from distinct ``dev``
+        values in ``events`` — which only lists people who happen to have run a
+        task, and cannot carry a role. Called by ``devorchestrator init``.
+        """
+        try:
+            self._client.table("devs").upsert(
+                {
+                    "name": name,
+                    "role": role,
+                    "last_seen": datetime.now(UTC).isoformat(),
+                },
+                on_conflict="name",
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — roster is metadata, never fatal
+            self.last_error = f"{type(exc).__name__}: {exc}"
+
+    def team_roster(self) -> list[tuple[str, str, str]]:
+        """(name, role, last_seen) for everyone registered, most recent first."""
+        try:
+            result = (
+                self._client.table("devs")
+                .select("name", "role", "last_seen")
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        return [(r["name"], r["role"], r["last_seen"]) for r in (result.data or [])]
+
     def list_modules(self) -> list[str]:
         try:
             result = self._client.table("events").select("module").execute()

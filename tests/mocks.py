@@ -86,6 +86,14 @@ class MockSupabaseTable:
         self.inserted.append(data)
         return self
 
+    def upsert(self, data: dict[str, Any], on_conflict: str | None = None) -> MockSupabaseTable:
+        """Mimic upsert semantics: replace a row matching ``on_conflict``, else add."""
+        self.inserted.append(data)
+        if on_conflict:
+            self.rows = [r for r in self.rows if r.get(on_conflict) != data.get(on_conflict)]
+        self.rows.append(data)
+        return self
+
     def select(self, *cols: str) -> MockSupabaseTable:
         return self
 

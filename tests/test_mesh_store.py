@@ -209,3 +209,49 @@ def test_mesh_operations_are_non_fatal_when_backend_errors() -> None:
     assert mesh.session_history() == []
     assert mesh.healthy() is False
     assert mesh.last_error and "Invalid API key" in mesh.last_error
+
+
+def test_register_dev_upserts_the_roster():
+    """devs was dead schema — nothing wrote to it (#51)."""
+    client = MockSupabaseClient()
+    mesh = SupabaseMesh(client)
+
+    mesh.register_dev("harsha", "tl")
+
+    row = client.tables["devs"].inserted[0]
+    assert row["name"] == "harsha"
+    assert row["role"] == "tl"
+    assert row["last_seen"]
+
+
+def test_register_dev_is_idempotent_per_name():
+    client = MockSupabaseClient()
+    mesh = SupabaseMesh(client)
+
+    mesh.register_dev("harsha", "dev")
+    mesh.register_dev("harsha", "tl")  # same person, role changed
+
+    assert len(client.tables["devs"].rows) == 1
+    assert client.tables["devs"].rows[0]["role"] == "tl"
+
+
+def test_team_roster_reads_back_registered_devs():
+    client = MockSupabaseClient()
+    mesh = SupabaseMesh(client)
+    mesh.register_dev("harsha", "tl")
+    mesh.register_dev("yuvaraj", "dev")
+
+    roster = mesh.team_roster()
+
+    assert {(n, r) for n, r, _ in roster} == {("harsha", "tl"), ("yuvaraj", "dev")}
+
+
+def test_register_dev_never_raises_when_the_backend_is_down():
+    """The roster is metadata — a failure must not break `init`."""
+    class _Boom:
+        def table(self, name):
+            raise RuntimeError("connection refused")
+
+    mesh = SupabaseMesh(_Boom())
+    mesh.register_dev("harsha")  # must not raise
+    assert mesh.last_error is not None

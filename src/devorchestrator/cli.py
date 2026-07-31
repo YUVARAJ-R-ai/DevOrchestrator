@@ -348,6 +348,10 @@ def init(
             mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
             if mesh.healthy():
                 mesh.emit("dev_joined", "init", {"dev": config.name})
+                # The event is the audit trail; the devs row is the roster
+                # (carries role + last_seen, and one row per dev rather than
+                # one per join).
+                mesh.register_dev(config.name, config.role.value)
                 console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
             else:
                 console.print(

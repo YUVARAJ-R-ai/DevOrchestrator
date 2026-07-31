@@ -284,23 +284,47 @@ def test_finished_pane_stays_visible(tmp_path):
 
 
 @needs_tmux
-def test_second_session_reuses_the_branch_session_and_keeps_history(tmp_path):
-    """Research and impl windows must accumulate: a dev attaches once and sees
-    the whole task, rather than impl discarding the research pane."""
-    branch = "feature/issue-8-history"
+def test_research_and_impl_share_one_split_window(tmp_path):
+    """Issue #60: one window, research left and impl right, both visible at once.
+
+    Uses two separate ``TmuxRunner`` instances because that is what
+    ``pipeline.py`` does — it builds a ``ClaudeSession`` per kind. A runner that
+    decides "am I the first pane?" from its own state gets this wrong and lets
+    impl overwrite the research pane, which is the exact regression this asserts
+    against. Both outputs must survive.
+    """
+    branch = "feature/issue-60-split"
     research = TmuxRunner(branch=branch, cwd=tmp_path, root=tmp_path)
     impl = TmuxRunner(branch=branch, cwd=tmp_path, root=tmp_path)
     try:
-        research.wait(research.spawn(SessionKind.research, "echo one"), timeout=30, poll=0.1)
-        impl.wait(impl.spawn(SessionKind.impl, "echo two"), timeout=30, poll=0.1)
+        research.wait(
+            research.spawn(SessionKind.research, "echo one-research"), timeout=30, poll=0.1
+        )
+        impl.wait(impl.spawn(SessionKind.impl, "echo two-impl"), timeout=30, poll=0.1)
 
-        listed = subprocess.run(
+        panes = subprocess.run(
+            ["tmux", "list-panes", "-s", "-t", research.session_name, "-F", "#{pane_index}"],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        assert len(panes) == 2, f"expected a split, got {len(panes)} pane(s): {panes}"
+
+        windows = subprocess.run(
             ["tmux", "list-windows", "-t", research.session_name, "-F", "#{window_name}"],
             capture_output=True,
             text=True,
+        ).stdout.split()
+        assert len(windows) == 1, f"panes should share one window, got {windows}"
+
+        combined = "".join(
+            subprocess.run(
+                ["tmux", "capture-pane", "-p", "-t", f"{research.session_name}:0.{idx}"],
+                capture_output=True,
+                text=True,
+            ).stdout
+            for idx in panes
         )
-        windows = listed.stdout.split()
-        assert any(w.startswith("research-") for w in windows), windows
-        assert any(w.startswith("impl-") for w in windows), windows
+        assert "one-research" in combined
+        assert "two-impl" in combined
     finally:
         research.kill()

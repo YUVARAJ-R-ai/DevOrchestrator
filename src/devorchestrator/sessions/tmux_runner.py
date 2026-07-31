@@ -25,6 +25,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -480,6 +481,9 @@ class ClaudeSession:
         root: Path | None = None,
         runner: TmuxRunner | None = None,
         timeout: float = 1800.0,
+        mesh=None,  # contracts.Mesh | None — session lifecycle tracking (#56)
+        dev: str = "unknown",
+        heartbeat_interval: float = 15.0,
     ) -> None:
         self.kind = kind
         self.branch = branch
@@ -488,6 +492,9 @@ class ClaudeSession:
         self._cwd = cwd
         self._agent = agent
         self._headless = headless
+        self._mesh = mesh
+        self._dev = dev
+        self._heartbeat_interval = heartbeat_interval
         self.runner = runner or (
             TmuxRunner(branch=branch, cwd=cwd, agent=agent, force_headless=headless, root=root)
             if branch is not None
@@ -512,8 +519,24 @@ class ClaudeSession:
 
         path = prompt_path(self.branch, self.kind, root=self.root)
         path.write_text(prompt, encoding="utf-8")
-        self.run_prompt_file(path)
-        state = self.wait(timeout=self.timeout)
+
+        # Session lifecycle tracking (#56): report start/heartbeat/end to the
+        # mesh so the source of truth reflects live sessions, not just pipeline
+        # milestones. All mesh calls are best-effort (SupabaseMesh swallows
+        # errors) so tracking never breaks the run.
+        started = time.monotonic()
+        self._emit_lifecycle("session_started", {})
+        stop_heartbeat = self._start_heartbeat()
+        try:
+            self.run_prompt_file(path)
+            state = self.wait(timeout=self.timeout)
+        finally:
+            stop_heartbeat.set()
+            self._emit_lifecycle("session_ended", {
+                "ok": self.state.ok,
+                "duration_s": round(time.monotonic() - started, 1),
+                "files_touched": self._files_touched(),
+            })
 
         if not state.ok:
             reason = state.error or f"exit {state.exit_code}"
@@ -522,6 +545,43 @@ class ClaudeSession:
             if tail:
                 console.print(f"[dim]{tail}[/dim]")
             raise SessionFailed(f"{self.kind.value} session failed: {reason}")
+
+    # -- session lifecycle tracking (#56) ---------------------------------
+
+    def _emit_lifecycle(self, event_type: str, extra: dict) -> None:
+        if self._mesh is None:
+            return
+        self._mesh.emit(event_type, self.branch or "unknown", {
+            "dev": self._dev, "branch": self.branch, "kind": self.kind.value, **extra,
+        })
+
+    def _files_touched(self) -> list[str]:
+        """Uncommitted files the session changed, best-effort (empty on any error)."""
+        try:
+            proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=self._cwd or Path.cwd(), capture_output=True, text=True, timeout=10,
+            )
+            return [line[3:].strip() for line in proc.stdout.splitlines() if line.strip()]
+        except Exception:
+            return []
+
+    def _start_heartbeat(self) -> threading.Event:
+        """Emit `session_heartbeat` every ``heartbeat_interval`` while the session
+        runs, so `active_sessions()` (#57) can tell a live session from a dead one.
+        Returns the stop Event the caller sets when the session finishes."""
+        stop = threading.Event()
+        if self._mesh is None or self._heartbeat_interval <= 0:
+            return stop
+
+        def beat() -> None:
+            while not stop.wait(self._heartbeat_interval):
+                self._emit_lifecycle("session_heartbeat", {
+                    "alive": True, "files_touched": self._files_touched(),
+                })
+
+        threading.Thread(target=beat, daemon=True).start()
+        return stop
 
     def is_alive(self) -> bool:
         return self.runner is not None and self.runner.is_alive(self.state)

@@ -532,8 +532,6 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
         # ever "awaiting review" and `devorchestrator review` lists nothing.
         reviewer=config.git.reviewer,
     )
-    research = ClaudeSession(SessionKind.research, agent=config.agent.value)
-    impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
     checks = SubprocessCheckRunner(all_checks=all_checks)
 
     mesh = None
@@ -545,6 +543,16 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
             create_supabase_client(config.mesh.supabase_url, mesh_key),
             project=config.project_key,
         )
+
+    # Sessions report their own lifecycle (start/heartbeat/end) to the mesh (#56),
+    # so the source of truth is session-level and live — not just pipeline
+    # milestones. mesh may be None (tracking simply no-ops).
+    research = ClaudeSession(
+        SessionKind.research, agent=config.agent.value, mesh=mesh, dev=config.name
+    )
+    impl = ClaudeSession(
+        SessionKind.impl, agent=config.agent.value, mesh=mesh, dev=config.name
+    )
 
     notifier = config.notify.build_notifier() if config.notify is not None else None
 

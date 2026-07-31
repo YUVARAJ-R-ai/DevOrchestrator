@@ -17,6 +17,7 @@ import pytest
 from devorchestrator.sessions.brain import (
     BASE_URLS,
     DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     FAILURE_BUDGET,
     Brain,
     BrainClient,
@@ -165,3 +166,29 @@ def test_api_key_is_read_from_the_configured_token_env(monkeypatch):
     config = type("Cfg", (), {"brain": block})()
     # No openai extra installed in CI -> client is None; describe() says why.
     assert "fallback only" in build_brain(config).describe() or build_brain(config).available
+
+
+# ---------------------------------------------------------------------------
+# Provider/model coherence — issue #53
+# ---------------------------------------------------------------------------
+
+
+def test_default_model_uses_the_default_providers_naming_convention():
+    """Model ids are provider-specific, and mismatching them fails *silently*.
+
+    SiliconFlow serves ``deepseek-ai/DeepSeek-V4-Flash``; OpenRouter spells the
+    same model ``deepseek/deepseek-v4-flash``. Pointing one at the other returns
+    400 "Model does not exist", which ``Brain.complete`` swallows into the local
+    fallback — so the loop keeps running and nobody learns the brain is dead.
+
+    That is not hypothetical: the default was ``Nanbeige/Nanbeige2-16B-Chat``,
+    a model SiliconFlow does not serve at all, and it had therefore never once
+    produced real output. This pins the default to its provider's namespace.
+    """
+    assert DEFAULT_PROVIDER == "siliconflow"
+    org, _, name = DEFAULT_MODEL.partition("/")
+    assert name, f"{DEFAULT_MODEL!r} should be '<org>/<model>'"
+    assert org == "deepseek-ai", (
+        f"{DEFAULT_MODEL!r} is not a SiliconFlow id — 'deepseek/…' is the "
+        "OpenRouter spelling and fails silently against SiliconFlow"
+    )

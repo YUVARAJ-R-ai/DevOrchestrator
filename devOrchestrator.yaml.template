@@ -20,9 +20,15 @@ git:
                         # it is not the same thing as `name:` above.
 
 brain:                 # optional — external LLM for PR descriptions
-  provider: openrouter
-  model: deepseek/deepseek-v4-flash
-  token_env: OPENROUTER_API_KEY
+  provider: siliconflow          # siliconflow | openrouter
+  model: deepseek-ai/DeepSeek-V4-Flash
+  token_env: SILICONFLOW_API_KEY
+  # Verified live 2026-07-31 (issue #53). The model id is provider-specific:
+  # SiliconFlow serves `deepseek-ai/DeepSeek-V4-Flash`, while the OpenRouter
+  # spelling of the same model is `deepseek/deepseek-v4-flash`. Using one id
+  # against the other provider returns 400 "Model does not exist", and the
+  # brain then degrades silently to the mechanical PR description — so change
+  # `provider` and `model` together, never one alone.
 
 notify:                # optional
   type: mattermost     # mattermost | teams

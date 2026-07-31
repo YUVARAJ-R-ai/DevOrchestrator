@@ -45,7 +45,14 @@ BASE_URLS: dict[str, str] = {
 
 DEFAULT_PROVIDER = "siliconflow"
 DEFAULT_BASE_URL = BASE_URLS[DEFAULT_PROVIDER]
-DEFAULT_MODEL = "Nanbeige/Nanbeige2-16B-Chat"
+#: Verified live against SiliconFlow on 2026-07-31 (issue #53): this id returns
+#: a real completion, and ``deepseek-ai/DeepSeek-V3`` does too if a fallback is
+#: ever needed. The previous default, ``Nanbeige/Nanbeige2-16B-Chat``, is not in
+#: SiliconFlow's catalogue at all — it answered every call with
+#: ``400 code 20012 "Model does not exist"``, so the brain degraded to the local
+#: fallback on every single request. By design that never raised, which is
+#: exactly why nobody noticed it had never once worked.
+DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
 DEFAULT_TOKEN_ENV = "SILICONFLOW_API_KEY"
 
 #: Short on purpose. A demo cannot stall a minute on an unresponsive provider —

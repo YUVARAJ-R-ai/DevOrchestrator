@@ -37,8 +37,21 @@ Related to the above: `Pipeline.prepare_pr()` (the method) expects a full `Pipel
 ### 🟡 Account rotation / rate-limit handling doesn't exist
 If the `claude` CLI hits a rate limit mid-session, there's no automatic account rotation or retry-with-backoff (this was always Sprint-4/post-MVP scope, never built). A rate limit mid-demo means the session fails; the only mitigation is `docs/DEMO.md`'s fallback plan (pre-recorded backup video).
 
-### 🟡 SiliconFlow brain path is wired but unverified against a live endpoint
-The brain (`sessions/brain.py`) was fully built but **never actually called anywhere** — `pr_description.py` produced a purely mechanical description and `openai` wasn't even installed. **Fixed**: `openai` is now a core dep, `generate_pr_description` routes through the brain (SiliconFlow/DeepSeek) with the mechanical description as a hard fallback, and `devorchestrator init` prints the brain status. Config now defaults to `provider: siliconflow`, `model: deepseek-ai/DeepSeek-V3`, `token_env: SILICONFLOW_API_KEY`. **Still unverified**: nobody has run it against a live SiliconFlow key + confirmed the exact model id ("DeepSeek V4 Flash" vs `DeepSeek-V3`) during this session — a wrong model id or missing key degrades to the mechanical description (by design, never breaks), but "DeepSeek actually wrote this PR body" is not yet proven end-to-end.
+### ✅ SiliconFlow brain — verified live 2026-07-31 (issue #53)
+The brain (`sessions/brain.py`) was fully built but **never actually called anywhere** — `pr_description.py` produced a purely mechanical description and `openai` wasn't even installed. **Fixed** earlier: `openai` is a core dep, `generate_pr_description` routes through the brain with the mechanical description as a hard fallback, and `devorchestrator init` prints the brain status.
+
+**Now verified end-to-end against a live SiliconFlow key**, and the verification found a defect the previous note missed:
+
+- 🔴 **`brain.py`'s `DEFAULT_MODEL` was `Nanbeige/Nanbeige2-16B-Chat`, which SiliconFlow does not serve.** Every call returned `400 code 20012 "Model does not exist"` and degraded to the local fallback. The brain had therefore *never once produced real output* on the default path. It never raised — by design — which is exactly why this survived unnoticed. Now `deepseek-ai/DeepSeek-V4-Flash`.
+- The earlier claim that "config now defaults to `provider: siliconflow`, `model: deepseek-ai/DeepSeek-V3`" **was not true of the code**: `config.py`'s `BrainConfig` and `devOrchestrator.yaml.template` both defaulted to `openrouter` / `deepseek/deepseek-v4-flash`, so the live path was OpenRouter, not SiliconFlow. The template is now `siliconflow` / `deepseek-ai/DeepSeek-V4-Flash` / `SILICONFLOW_API_KEY`.
+- **Model ids are provider-specific.** SiliconFlow serves `deepseek-ai/DeepSeek-V4-Flash`; the OpenRouter spelling of the same model is `deepseek/deepseek-v4-flash`. Crossing them yields the silent-fallback failure above, so `provider` and `model` must change together. This resolves the "DeepSeek V4 Flash vs `DeepSeek-V3`" naming question — both `deepseek-ai/DeepSeek-V4-Flash` and `deepseek-ai/DeepSeek-V3` work; V4-Flash is the default.
+- Base URL `https://api.siliconflow.com/v1` (what `BASE_URLS` already had) is correct — `api.siliconflow.cn` rejects the same key with 401.
+
+Evidence: `Brain.complete()` returned real text with `verified=True`, and `generate_pr_description` produced a brain-written body visibly different from the mechanical template with no fallback marker.
+
+**Remaining caveat (🟡, not part of #53):** the brain writes the PR body from commit *subject lines* only, not the diff, so it confidently invents specifics — a run on the Lane C branch described "resizable split pane layout … persistence across page reloads" for a tmux CLI change. The text reads well and is partly fiction. Worth feeding it the artifact and `git diff --stat` before anyone relies on the output unedited.
+
+**Not covered:** a full `devorchestrator pr` run was deliberately *not* executed, since that opens a real PR on GitHub. The brain path it calls (`generate_pr_description`) was exercised directly instead.
 
 ### 🟢 `GITHUB_TOKEN` needs two scopes, easy to get wrong
 A classic PAT needs both `repo` **and** `project` scopes (the latter for Projects v2 GraphQL — reading Priority/Size fields via `board.project_number`). A token with only `repo` scope will fail the moment `GithubBoard._fetch_via_project()` runs a GraphQL query, with an unhelpful GitHub API error rather than a clear "missing project scope" message.

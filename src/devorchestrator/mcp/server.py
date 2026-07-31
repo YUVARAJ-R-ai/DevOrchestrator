@@ -14,6 +14,7 @@ Two layers:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import asdict, is_dataclass
@@ -56,17 +57,22 @@ class MeshTools:
         })
         return f"Session event logged: {kind} on {branch}"
 
-    def who_is_touching(self, module: str) -> list[dict[str, Any]]:
-        """Who is currently active on a module, newest first."""
-        return [_as_dict(a) for a in self._mesh.who_is_touching(module)]
+    def who_is_touching(self, module: str) -> str:
+        """Who is currently active on a module, newest first.
 
-    def active_sessions(self) -> list[dict[str, Any]]:
+        Returns JSON text (not a bare list): FastMCP emits *no* content block for
+        an empty list, so an empty result would be invisible to the model."""
+        return json.dumps([_as_dict(a) for a in self._mesh.who_is_touching(module)])
+
+    def active_sessions(self) -> str:
         """Sessions running right now (fresh heartbeat within 60s)."""
-        return [_as_dict(a) for a in self._mesh.active_sessions()]  # type: ignore[attr-defined]
+        return json.dumps(
+            [_as_dict(a) for a in self._mesh.active_sessions()]  # type: ignore[attr-defined]
+        )
 
-    def recent_decisions(self, limit: int = 10) -> list[dict[str, Any]]:
+    def recent_decisions(self, limit: int = 10) -> str:
         """The most recent architectural decisions logged to the mesh."""
-        return [_as_dict(d) for d in self._mesh.recent_decisions(limit)]
+        return json.dumps([_as_dict(d) for d in self._mesh.recent_decisions(limit)])
 
 
 def build_mcp(tools: MeshTools) -> FastMCP:

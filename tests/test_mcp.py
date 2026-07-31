@@ -7,6 +7,7 @@ tool is exercised against the same ``MockSupabaseClient`` the mesh store tests u
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -79,7 +80,7 @@ def test_who_is_touching_serializes_activities() -> None:
         ]
     )
     tools = _make_tools(client)
-    out = tools.who_is_touching("runner.py")
+    out = json.loads(tools.who_is_touching("runner.py"))
     assert out == [
         {"dev": "alice", "module": "runner.py", "branch": "main",
          "event_type": "check", "ts": "2026-01-01T00:00:00"},
@@ -98,7 +99,7 @@ def test_active_sessions_returns_running_only() -> None:
         ]
     )
     tools = _make_tools(client)
-    out = tools.active_sessions()
+    out = json.loads(tools.active_sessions())
     assert [s["dev"] for s in out] == ["alice"]
 
 
@@ -112,7 +113,7 @@ def test_recent_decisions_serializes() -> None:
         ]
     )
     tools = _make_tools(client)
-    out = tools.recent_decisions(limit=5)
+    out = json.loads(tools.recent_decisions(limit=5))
     assert len(out) == 1
     assert out[0]["description"] == "use supabase"
     assert out[0]["dev"] == "tharun"
@@ -124,9 +125,18 @@ def test_tools_degrade_to_empty_on_backend_error() -> None:
             raise RuntimeError("Invalid API key")
 
     tools = MeshTools(SupabaseMesh(_BrokenClient()), dev="tharun")  # type: ignore[arg-type]
-    assert tools.who_is_touching("x") == []
-    assert tools.active_sessions() == []
-    assert tools.recent_decisions() == []
+    assert tools.who_is_touching("x") == "[]"
+    assert tools.active_sessions() == "[]"
+    assert tools.recent_decisions() == "[]"
+
+
+def test_read_tools_return_visible_json_text_even_when_empty() -> None:
+    """Regression: FastMCP emits no content block for a bare [], so handlers must
+    return JSON text — an empty result must still be visible to the model."""
+    tools = _make_tools(_make_client())
+    assert tools.who_is_touching("x") == "[]"
+    assert tools.active_sessions() == "[]"
+    assert tools.recent_decisions() == "[]"
 
 
 def test_build_mcp_advertises_the_tool_set() -> None:

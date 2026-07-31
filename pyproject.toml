@@ -29,6 +29,9 @@ agent = ["libtmux>=0.35"]
 # openai moved to core deps: the brain (SiliconFlow/DeepSeek PR descriptions)
 # is now wired into `devorchestrator pr`, so it ships by default.
 brain = ["openai>=1.30"]
+# The Streamlit control panel (frontend/app.py) — optional, not needed by the CLI.
+# Run: uv run --extra ui streamlit run frontend/app.py
+ui = ["streamlit>=1.30"]
 
 [project.scripts]
 devorchestrator = "devorchestrator.cli:main"

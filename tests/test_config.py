@@ -172,3 +172,34 @@ def test_notify_config_build_notifier_without_env(  # noqa: E501
     })
     notifier = cfg.notify.build_notifier()  # type: ignore[union-attr]
     assert notifier is None
+
+
+def test_optional_integrations_do_not_block_startup(tmp_path, monkeypatch):
+    """brain/notify degrade gracefully — a missing key must not stop `start`."""
+    monkeypatch.setenv("PLANE_API_KEY", "x")
+    monkeypatch.setenv("GITEA_TOKEN", "y")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("MATTERMOST_WEBHOOK", raising=False)
+    _write(tmp_path, VALID + """
+brain:
+  provider: openrouter
+  model: m
+  token_env: OPENROUTER_API_KEY
+notify:
+  type: mattermost
+  webhook_env: MATTERMOST_WEBHOOK
+""")
+
+    cfg = load_config(tmp_path, check_env=True)  # must not raise
+
+    from devorchestrator.config import optional_env_gaps
+    assert {name for name, _ in optional_env_gaps(cfg)} == {"brain", "notify"}
+
+
+def test_board_and_git_tokens_still_required(tmp_path, monkeypatch):
+    monkeypatch.delenv("PLANE_API_KEY", raising=False)
+    monkeypatch.delenv("GITEA_TOKEN", raising=False)
+    _write(tmp_path, VALID)
+
+    with pytest.raises(ConfigError, match="PLANE_API_KEY"):
+        load_config(tmp_path, check_env=True)

@@ -103,6 +103,23 @@ def _mesh_call(what: str, fn, *args, **kwargs):
         raise typer.Exit(code=1) from exc
 
 
+def _report_optional_gaps(config: Config) -> None:
+    """Say out loud which optional integrations are running degraded.
+
+    They no longer block startup (they all have fallbacks), but a silently
+    mechanical PR description is confusing if you configured a brain and
+    expected it to be used.
+    """
+    from .config import optional_env_gaps
+
+    for name, var in optional_env_gaps(config):
+        detail = {
+            "brain": "PR descriptions will be the mechanical (git log + artifact) version",
+            "notify": "team notifications will be skipped",
+        }.get(name, "running without it")
+        console.print(f"[yellow]›[/] {name}: [dim]${var} unset — {detail}[/]")
+
+
 def _load_or_exit(ctx: typer.Context, *, check_env: bool = True) -> Config:
     """Load the config for the current invocation, or exit cleanly with the hint.
 
@@ -436,6 +453,7 @@ def start(ctx: typer.Context) -> None:
     separate step (`devorchestrator pr`) so the dev reviews the code first.
     """
     config = _load_or_exit(ctx)  # fail loud on bad config before touching adapters
+    _report_optional_gaps(config)
     try:
         pipeline = build_pipeline(config, on_event=lambda m: console.print(f"[dim]›[/] {m}"))
     except LanePending as exc:

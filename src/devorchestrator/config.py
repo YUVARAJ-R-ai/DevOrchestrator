@@ -256,15 +256,21 @@ def require_env(field_name: str, var: str) -> str:
 
 
 def _check_env_vars(config: Config) -> None:
-    """Every referenced ``*_env`` variable must be present in the environment."""
+    """Fail only on the variables the loop genuinely cannot run without.
+
+    board and git tokens are load-bearing: no token, no issues and no PR.
+
+    brain and notify are *not*. Both are built to degrade — a missing brain key
+    yields the mechanical PR description (see pr_description.generate_pr_description)
+    and NotifyConfig.build_notifier() returns None when its webhook is unset, so
+    notifications are simply skipped. Blocking startup on them meant a configured
+    but unused brain/notify section stopped `devorchestrator start` outright,
+    which is the opposite of degrading gracefully.
+    """
     required: list[tuple[str, str]] = [
         ("board.token_env", config.board.token_env),
         ("git.token_env", config.git.token_env),
     ]
-    if config.brain is not None:
-        required.append(("brain.token_env", config.brain.token_env))
-    if config.notify is not None:
-        required.append(("notify.webhook_env", config.notify.webhook_env))
 
     missing = [(field_name, var) for field_name, var in required if not os.environ.get(var)]
     if missing:
@@ -274,6 +280,20 @@ def _check_env_vars(config: Config) -> None:
             f"required environment variable(s) not set: {details}.",
             hint=f"add them to your .env, e.g. `{first_var}=...`",
         )
+
+
+def optional_env_gaps(config: Config) -> list[tuple[str, str]]:
+    """(field, var) for optional integrations whose key is unset.
+
+    Not an error — callers surface these so a silently-degraded brain or notifier
+    is visible rather than mysterious.
+    """
+    gaps: list[tuple[str, str]] = []
+    if config.brain is not None and not os.environ.get(config.brain.token_env):
+        gaps.append(("brain", config.brain.token_env))
+    if config.notify is not None and not os.environ.get(config.notify.webhook_env):
+        gaps.append(("notify", config.notify.webhook_env))
+    return gaps
 
 
 def load_config(directory: str | Path | None = None, *, check_env: bool = True) -> Config:

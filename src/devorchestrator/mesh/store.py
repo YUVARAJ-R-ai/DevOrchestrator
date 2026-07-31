@@ -105,6 +105,39 @@ class SupabaseMesh(Mesh):
             self.last_error = None
         except Exception as exc:  # noqa: BLE001 — mesh writes never break the loop
             self.last_error = f"{type(exc).__name__}: {exc}"
+        # Session lifecycle events (#56) also project into the `sessions` table so
+        # active_sessions()/session_history() have current rows to read — without
+        # this the reader (#57) only ever sees an empty table.
+        if event_type.startswith("session_"):
+            self._upsert_session(event_type, payload)
+
+    def _upsert_session(self, event_type: str, payload: dict) -> None:
+        """Fold a session_* event into the current row for (dev, branch, kind).
+
+        started → running; heartbeat → refresh last_seen (state untouched);
+        ended → ended/failed with finished_at. Best-effort like every mesh write.
+        """
+        now = datetime.now(UTC).isoformat()
+        row: dict = {
+            "project": self._project,
+            "dev": payload.get("dev", "unknown"),
+            "branch": payload.get("branch") or "",
+            "kind": payload.get("kind") or "",
+            "last_seen": now,
+            "payload": payload,
+        }
+        if event_type == "session_started":
+            row.update(state="running", started_at=now, finished_at=None)
+        elif event_type == "session_ended":
+            row.update(state="ended" if payload.get("ok", True) else "failed", finished_at=now)
+        else:  # session_heartbeat and any future session_* — just keep it alive
+            row["state"] = "running"
+        try:
+            self._client.table("sessions").upsert(
+                row, on_conflict="project,dev,branch,kind"
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — session tracking never breaks the loop
+            self.last_error = f"{type(exc).__name__}: {exc}"
 
     def who_is_touching(self, module: str) -> list[DevActivity]:
         try:

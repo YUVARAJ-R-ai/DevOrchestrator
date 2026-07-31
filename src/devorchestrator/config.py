@@ -297,8 +297,10 @@ def load_config(directory: str | Path | None = None, *, check_env: bool = True) 
             hint=f"copy devOrchestrator.yaml.template to {CONFIG_FILENAME} and fill it in.",
         )
 
-    # Load .env from the same directory so token_env lookups resolve.
-    load_dotenv(base / ".env")
+    # Load .env from the same directory so token_env lookups resolve. override=True
+    # so the file is authoritative: a stale/empty shell export (e.g. from a prior
+    # `source .env` when it was blank) can never shadow the real values.
+    load_dotenv(base / ".env", override=True)
 
     try:
         raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))

@@ -55,6 +55,51 @@ def _pending(exc: LanePending) -> None:
     raise typer.Exit(code=0)
 
 
+def _mesh_or_exit(config: Config):
+    """Build a SupabaseMesh, or exit with a readable reason.
+
+    The mesh commands used to construct the client inline with no guard: an
+    unconfigured mesh, a bad key, or an unreachable host all surfaced as a raw
+    httpx traceback. `init` already reports connection problems this way; these
+    now match it.
+    """
+    if not config.mesh.supabase_url:
+        console.print(
+            "[red]✗[/] no mesh configured — [cyan]mesh.supabase_url[/] is empty in "
+            f"{CONFIG_FILENAME}.\n"
+            "  → run [bold]devorchestrator init[/] and answer yes to the Supabase prompt."
+        )
+        raise typer.Exit(code=2)
+
+    key = os.environ.get(config.mesh.supabase_key_env, "")
+    if not key:
+        console.print(
+            f"[red]✗[/] [cyan]${config.mesh.supabase_key_env}[/] is not set — "
+            "can't reach the mesh.\n  → add it to your .env."
+        )
+        raise typer.Exit(code=2)
+
+    from .mesh.store import SupabaseMesh, create_supabase_client
+
+    try:
+        return SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+    except Exception as exc:  # noqa: BLE001 - client construction, any failure is fatal here
+        console.print(f"[red]✗[/] could not connect to the mesh: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _mesh_call(what: str, fn, *args, **kwargs):
+    """Run one mesh operation, turning backend failures into a readable line."""
+    try:
+        return fn(*args, **kwargs)
+    except httpx.HTTPError as exc:
+        console.print(f"[red]✗[/] mesh unreachable while trying to {what}: {exc}")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # noqa: BLE001 - supabase-postgrest raises its own types
+        console.print(f"[red]✗[/] mesh error while trying to {what}: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
 def _load_or_exit(ctx: typer.Context, *, check_env: bool = True) -> Config:
     """Load the config for the current invocation, or exit cleanly with the hint.
 
@@ -499,14 +544,11 @@ def mesh(
     config = _load_or_exit(ctx, check_env=False)
     from .mesh.conflict import warn_on_overlap
     from .mesh.dashboard import render_dashboard
-    from .mesh.store import SupabaseMesh, create_supabase_client
 
-    key = os.environ.get(config.mesh.supabase_key_env, "")
-    client = create_supabase_client(config.mesh.supabase_url, key)
-    mesh_inst = SupabaseMesh(client)
+    mesh_inst = _mesh_or_exit(config)
 
     if check:
-        warnings = warn_on_overlap(mesh_inst, check)
+        warnings = _mesh_call("check module overlap", warn_on_overlap, mesh_inst, check)
         if warnings:
             console.print("[bold]Module overlap warnings:[/]")
             for w in warnings:
@@ -515,7 +557,7 @@ def mesh(
         else:
             console.print("[green]✓ No overlapping activity detected[/]\n")
 
-    render_dashboard(mesh_inst)
+    _mesh_call("read team activity", render_dashboard, mesh_inst)
 
 
 @app.command()
@@ -526,12 +568,9 @@ def decision(
 ) -> None:
     """Log an architectural decision into the shared mesh, visible to the whole team."""
     config = _load_or_exit(ctx, check_env=False)
-    from .mesh.store import SupabaseMesh, create_supabase_client
+    mesh_inst = _mesh_or_exit(config)
 
-    key = os.environ.get(config.mesh.supabase_key_env, "")
-    client = create_supabase_client(config.mesh.supabase_url, key)
-    mesh_inst = SupabaseMesh(client)
-    mesh_inst.emit("decision", module, {
+    _mesh_call("log the decision", mesh_inst.emit, "decision", module, {
         "dev": config.name,
         "description": message,
         "modules": [module],
@@ -539,7 +578,7 @@ def decision(
     console.print(f"[green]Decision logged:[/] {message}")
 
     from .mesh.conflict import warn_on_overlap
-    warnings = warn_on_overlap(mesh_inst, [module])
+    warnings = _mesh_call("check module overlap", warn_on_overlap, mesh_inst, [module])
     if warnings:
         console.print()
         console.print("[yellow]Note: overlapping activity on this module:[/]")

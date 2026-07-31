@@ -49,6 +49,34 @@ def test_create_branch_uses_start_task_naming_and_base_sha() -> None:
     assert branch.base == "dev"
 
 
+def test_create_branch_resets_existing_branch_instead_of_crashing() -> None:
+    """Re-run case: the branch already exists (422). Instead of crashing, reset
+    it to base via PATCH so re-runs are idempotent."""
+    issue = Issue(id="30", title="demo")
+    patched = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/git/ref/heads/dev"):
+            return httpx.Response(200, json={"object": {"sha": "basesha"}})
+        if request.url.path.endswith("/git/refs") and request.method == "POST":
+            return httpx.Response(422, json={"message": "Reference already exists"})
+        if "/git/refs/heads/" in request.url.path and request.method == "PATCH":
+            import json
+
+            body = json.loads(request.content)
+            patched["sha"] = body["sha"]
+            patched["force"] = body["force"]
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    git = GithubGit(url="https://github.com/acme/repo", token="t", client=_transport(handler))
+
+    branch = git.create_branch(issue, base="dev")
+
+    assert branch.name == f"feature/{issue.branch_slug()}"
+    assert patched == {"sha": "basesha", "force": True}  # existing branch reset to base
+
+
 def test_open_pr_links_issue_and_requests_reviewer() -> None:
     branch = BranchRef(name="feature/issue-6-x", issue_id="6", base="dev")
     calls = []

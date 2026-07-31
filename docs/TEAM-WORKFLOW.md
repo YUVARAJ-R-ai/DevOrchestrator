@@ -15,7 +15,7 @@ Each lane owns a disjoint set of files. **You touch only your lane's files.** No
 | **A — Spine** | harsha | `Haise-727` | `pyproject.toml`, `cli.py`, `contracts.py`, `config.py`, `pipeline.py`, `review.py`, `devOrchestrator.yaml.template` |
 | **B — Integrations** | yuvaraj | `YUVARAJ-R-ai` | `integrations/github_board.py`, `integrations/github_git.py`, `integrations/selector.py`, `scripts/demo.sh`, `docs/DEMO.md` |
 | **C — AI sessions** | ragav | `ragavhariharan` | `sessions/tmux_runner.py`, `sessions/research.py`, `sessions/impl.py`, `sessions/brain.py`, `sessions/artifact.py`, `prompts/` |
-| **D — Mesh + Gates** | tharun | `ConTresillo` | `checks/runner.py`, `checks/autofix.py`, `mesh/store.py`, `mesh/dashboard.py`, `pr_description.py`, `notify.py` |
+| **D — Mesh + Gates** | tharun | `ConTresillo` | `checks/runner.py`, `mesh/store.py`, `mesh/dashboard.py`, `pr_description.py`, `notify.py` |
 
 All under `src/devorchestrator/`.
 

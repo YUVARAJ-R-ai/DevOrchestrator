@@ -412,9 +412,10 @@ def pr(
 
     Everything here runs through Pipeline.prepare_pr — the same checks → autofix →
     describe → open_pr → mesh → notify sequence the pipeline tests cover. It used
-    to be reimplemented inline, which meant the autofix path went through
-    checks/autofix.py (which only *logs* that it would re-invoke the agent, and
-    never does) instead of the pipeline's loop that actually re-runs the session.
+    to be reimplemented inline, which meant the autofix path went through a
+    checks/autofix.py helper that only logged that it would re-invoke the agent
+    and never did (since deleted, #49), instead of the pipeline's loop that
+    actually re-runs the session.
     """
     config = _load_or_exit(ctx, check_env=False)
     try:

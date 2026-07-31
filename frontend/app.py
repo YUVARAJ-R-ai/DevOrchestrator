@@ -40,22 +40,27 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
     html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
+    /* hide Streamlit chrome so the hero isn't clipped by the top toolbar */
+    header[data-testid="stHeader"] { background: transparent; height: 0; }
+    #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; height: 0; }
     .stApp {
       background:
         radial-gradient(1100px 500px at 12% -10%, rgba(94,234,212,.08), transparent 60%),
         radial-gradient(900px 500px at 100% 0%, rgba(240,180,41,.06), transparent 55%),
         #0b0f14;
     }
-    .block-container { padding-top: 2.2rem; max-width: 1150px; }
+    .block-container { padding-top: 3.6rem !important; max-width: 1150px; }
     h1, h2, h3, code, .mono { font-family: 'JetBrains Mono', monospace; }
+    h3 { margin-top: 1.4rem; }
 
-    .hero-kicker { font-family:'JetBrains Mono',monospace; letter-spacing:.35em;
-      text-transform:uppercase; font-size:.7rem; color:#5eead4; opacity:.9; }
+    .hero-kicker { font-family:'JetBrains Mono',monospace; letter-spacing:.3em;
+      text-transform:uppercase; font-size:.72rem; color:#5eead4; opacity:.9;
+      padding-top:.35rem; line-height:1.5; }
     .hero-title { font-family:'JetBrains Mono',monospace; font-weight:800;
-      font-size:2.7rem; line-height:1.05; margin:.2rem 0 .3rem;
+      font-size:2.7rem; line-height:1.12; margin:.35rem 0 .5rem; padding-bottom:.1rem;
       background:linear-gradient(92deg,#e6edf3,#5eead4); -webkit-background-clip:text;
-      -webkit-text-fill-color:transparent; }
-    .hero-sub { color:#93a1b0; font-size:1.02rem; max-width:60ch; }
+      background-clip:text; -webkit-text-fill-color:transparent; }
+    .hero-sub { color:#93a1b0; font-size:1.02rem; max-width:60ch; line-height:1.55; }
 
     .pill { display:inline-block; padding:.15rem .6rem; border-radius:999px;
       font-family:'JetBrains Mono',monospace; font-size:.72rem; font-weight:600;
@@ -218,24 +223,30 @@ with left:
     st.markdown("### your board  ·  live")
     if st.button("↻ fetch my assigned issues", use_container_width=True):
         st.cache_data.clear()
-    try:
-        from devorchestrator.integrations.github_board import GithubBoard
-        board = GithubBoard(
-            url=cfg.board.url, token=os.environ.get(cfg.git.token_env, ""),
-            dev_name=cfg.name, project_number=cfg.board.project_number,
-        )
-        issues = board.fetch_issues()
-        if not issues:
-            st.info("No open issues assigned to you.")
-        else:
-            st.dataframe(
-                [{"#": i.id, "title": i.title, "priority": i.priority.value,
-                  "size": i.estimate or "-"} for i in issues],
-                use_container_width=True, hide_index=True,
+    gh_token = os.environ.get(cfg.git.token_env, "")
+    if not gh_token:
+        st.warning(f"Set ${cfg.git.token_env} in .env to fetch your issues.")
+    else:
+        try:
+            from devorchestrator.integrations.github_board import GithubBoard
+            board = GithubBoard(
+                url=cfg.board.url, token=gh_token,
+                dev_name=cfg.name, project_number=cfg.board.project_number,
             )
-            st.caption(f"{len(issues)} issue(s) assigned to {cfg.name} — fetched live from GitHub.")
-    except Exception as exc:  # noqa: BLE001
-        st.warning(f"Board unavailable: {exc}")
+            issues = board.fetch_issues()
+            if not issues:
+                st.info("No open issues assigned to you.")
+            else:
+                st.dataframe(
+                    [{"#": i.id, "title": i.title, "priority": i.priority.value,
+                      "size": i.estimate or "-"} for i in issues],
+                    use_container_width=True, hide_index=True,
+                )
+                st.caption(
+                    f"{len(issues)} issue(s) assigned to {cfg.name} — fetched live from GitHub."
+                )
+        except Exception as exc:  # noqa: BLE001
+            st.warning(f"Board unavailable: {exc}")
 
 with right:
     st.markdown("### deepseek brain  ·  live")

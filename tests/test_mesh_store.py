@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from devorchestrator.mesh.store import SupabaseMesh
 from tests.mocks import MockSupabaseClient, MockSupabaseTable
 
 
 def _make_client() -> MockSupabaseClient:
     return MockSupabaseClient()
+
+
+def _iso(seconds_ago: int = 0) -> str:
+    return (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
 
 
 def test_emit_inserts_event() -> None:
@@ -93,6 +99,95 @@ def test_mesh_satisfies_protocol() -> None:
     assert isinstance(SupabaseMesh(client), Mesh)  # type: ignore[arg-type]
 
 
+def _session_row(
+    *,
+    dev: str,
+    kind: str,
+    state: str,
+    branch: str = "feature/x",
+    seconds_ago: int = 0,
+) -> dict:
+    return {
+        "dev": dev,
+        "branch": branch,
+        "kind": kind,
+        "state": state,
+        "last_seen": _iso(seconds_ago),
+        "started_at": _iso(seconds_ago + 30),
+        "finished_at": None if state in ("running", "pending") else _iso(seconds_ago - 5),
+    }
+
+
+def test_active_sessions_returns_only_recent_running() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(
+        rows=[
+            _session_row(dev="alice", kind="research", state="running", seconds_ago=10),
+            _session_row(dev="bob", kind="impl", state="running", seconds_ago=500),
+            _session_row(dev="carol", kind="impl", state="completed", seconds_ago=20),
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    active = mesh.active_sessions()
+    assert [s.dev for s in active] == ["alice"]
+
+
+def test_active_sessions_obeys_custom_window() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(
+        rows=[
+            _session_row(dev="alice", kind="research", state="running", seconds_ago=30),
+            _session_row(dev="bob", kind="impl", state="running", seconds_ago=90),
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    active = mesh.active_sessions(within_seconds=60)
+    assert [s.dev for s in active] == ["alice"]
+
+
+def test_active_sessions_empty() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(rows=[])
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    assert mesh.active_sessions() == []
+
+
+def test_session_history_returns_finished_only() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(
+        rows=[
+            _session_row(dev="bob", kind="impl", state="running", seconds_ago=5),
+            _session_row(dev="carol", kind="impl", state="completed", seconds_ago=100),
+            _session_row(dev="dave", kind="research", state="failed", seconds_ago=200),
+            _session_row(dev="erin", kind="impl", state="pending", seconds_ago=1),
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    history = mesh.session_history()
+    assert [s.dev for s in history] == ["carol", "dave"]
+
+
+def test_session_history_respects_limit() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(
+        rows=[
+            _session_row(dev="carol", kind="impl", state="completed", seconds_ago=100),
+            _session_row(dev="dave", kind="research", state="failed", seconds_ago=200),
+            _session_row(dev="erin", kind="impl", state="timeout", seconds_ago=300),
+        ]
+    )
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    history = mesh.session_history(limit=2)
+    assert [s.dev for s in history] == ["carol", "dave"]
+
+
+def test_session_history_empty() -> None:
+    client = _make_client()
+    client.tables["sessions"] = MockSupabaseTable(rows=[])
+    mesh = SupabaseMesh(client)  # type: ignore[arg-type]
+    assert mesh.session_history() == []
+
+
 class _BrokenClient:
     """A client whose every call raises — simulates a 401 / missing table."""
 
@@ -110,5 +205,7 @@ def test_mesh_operations_are_non_fatal_when_backend_errors() -> None:
     assert mesh.who_is_touching("x") == []
     assert mesh.list_modules() == []
     assert mesh.recent_decisions() == []
+    assert mesh.active_sessions() == []
+    assert mesh.session_history() == []
     assert mesh.healthy() is False
     assert mesh.last_error and "Invalid API key" in mesh.last_error

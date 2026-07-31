@@ -307,3 +307,47 @@ def test_project_key_derives_from_the_repo_url():
     ssh = make_config(git={"type": "github", "url": "git@github.com:acme/widgets.git",
                            "token_env": "G"})
     assert ssh.project_key == "acme/widgets"
+
+
+def test_emit_session_started_populates_active_sessions() -> None:
+    """#57 writer: a session_started event (from #56) creates a running row that
+    active_sessions() returns — previously the reader had no writer."""
+    mesh = SupabaseMesh(MockSupabaseClient(), project="proj-a")
+    mesh.emit("session_started", "feature/x", {
+        "dev": "yuvaraj", "branch": "feature/x", "kind": "research",
+    })
+
+    active = mesh.active_sessions()
+    assert len(active) == 1
+    assert active[0].dev == "yuvaraj"
+    assert active[0].kind == "research"
+    assert active[0].state == "running"
+    assert mesh.session_history() == []
+
+
+def test_emit_session_ended_moves_it_to_history() -> None:
+    mesh = SupabaseMesh(MockSupabaseClient(), project="proj-a")
+    payload = {"dev": "yuvaraj", "branch": "feature/x", "kind": "impl"}
+    mesh.emit("session_started", "feature/x", payload)
+    mesh.emit("session_ended", "feature/x", {**payload, "ok": True})
+
+    assert mesh.active_sessions() == []          # no longer running
+    history = mesh.session_history()
+    assert len(history) == 1
+    assert history[0].state == "ended"
+
+
+def test_emit_session_ended_failed_records_failed_state() -> None:
+    mesh = SupabaseMesh(MockSupabaseClient(), project="proj-a")
+    payload = {"dev": "yuvaraj", "branch": "feature/x", "kind": "impl"}
+    mesh.emit("session_started", "feature/x", payload)
+    mesh.emit("session_ended", "feature/x", {**payload, "ok": False})
+
+    assert mesh.session_history()[0].state == "failed"
+
+
+def test_non_session_events_do_not_create_session_rows() -> None:
+    mesh = SupabaseMesh(MockSupabaseClient(), project="proj-a")
+    mesh.emit("task_started", "cli.py", {"dev": "yuvaraj"})
+    assert mesh.active_sessions() == []
+    assert mesh.session_history() == []

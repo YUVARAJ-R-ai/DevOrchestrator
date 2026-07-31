@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import os
 import sys
+from html import escape
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Run from the repo root so config + .env resolve, and src/ imports work.
 ROOT = Path(__file__).resolve().parent.parent
@@ -145,6 +147,177 @@ def _pill(state: str, label: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Virtual terminal — a scripted, streaming preview of a live orchestration run.
+# Rendered as a self-contained animated iframe (CSS-only staggered reveal) so it
+# replays cleanly and never depends on a real tmux/session being attached.
+# Each line is (kind, text); kind picks the colour. Glyphs live in the text.
+# ---------------------------------------------------------------------------
+_TERM_TABS = {
+    "start (full loop)": [("orch:research", False), ("orch:implement", True),
+                          ("orch:gate", False), ("orch:pr", False)],
+    "pr (quality gate)": [("orch:gate", True), ("orch:pr", False)],
+    "mesh (team watch)": [("orch:mesh", True)],
+}
+
+_TERM_SCRIPTS: dict[str, list[tuple[str, str]]] = {
+    "start (full loop)": [
+        ("cmd",  "devorchestrator start"),
+        ("ok",   "✓ config loaded · YUVARAJ-R-ai · github"),
+        ("ok",   "✓ mesh online · project=hackathon"),
+        ("ask",  "? select a task ▸ #42 Add token-bucket rate limiter   [P1 · M]"),
+        ("ok",   "✓ branch feature/issue-42-rate-limiter created"),
+        ("gap",  ""),
+        ("run",  "▶ research session   tmux: orch:research"),
+        ("tool", "  claude ▸ reading src/gateway/…  (18 files)"),
+        ("dim",  "  claude ▸ mesh: nobody else is touching gateway/ — clear"),
+        ("path", "  claude ▸ wrote artifact.md  (approach: token-bucket, 34 lines)"),
+        ("ok",   "✓ research complete · 41s"),
+        ("gap",  ""),
+        ("run",  "▶ implement session  tmux: orch:implement"),
+        ("path", "  claude ▸ edit src/gateway/limiter.py       (+96  −0)"),
+        ("path", "  claude ▸ edit src/gateway/middleware.py    (+12  −3)"),
+        ("dim",  "  claude ▸ heartbeat → mesh  (touching: gateway/)"),
+        ("path", "  claude ▸ add  tests/test_limiter.py        (+58  −0)"),
+        ("ok",   "✓ implement complete · 3m12s"),
+        ("gap",  ""),
+        ("run",  "▶ quality gate"),
+        ("tool", "  ruff   ▸ 2 issues → autofixed"),
+        ("tool", "  pytest ▸ 128 passed in 6.4s"),
+        ("ok",   "✓ gate green"),
+        ("gap",  ""),
+        ("run",  "▶ pull request"),
+        ("tool", "  deepseek ▸ drafting PR description…"),
+        ("ok",   "✓ PR #57 opened → dev   \"issue #42: token-bucket rate limiter\""),
+        ("ok",   "✓ issue #42 moved to In review"),
+        ("dim",  "✓ session ended → mesh  (duration 4m01s, 3 files)"),
+        ("gap",  ""),
+        ("wait", "● waiting for human ▸ review the PR and approve"),
+    ],
+    "pr (quality gate)": [
+        ("cmd",  "devorchestrator pr"),
+        ("ok",   "✓ on branch feature/issue-42-rate-limiter"),
+        ("run",  "▶ quality gate"),
+        ("tool", "  ruff   ▸ 3 issues found"),
+        ("tool", "  ruff   ▸ 3 fixed automatically → committed"),
+        ("tool", "  pytest ▸ collecting… 128 tests"),
+        ("tool", "  pytest ▸ 128 passed, 0 failed in 6.4s"),
+        ("ok",   "✓ gate green"),
+        ("gap",  ""),
+        ("run",  "▶ description"),
+        ("tool", "  deepseek ▸ reading diff (4 files, +166 −3)"),
+        ("tool", "  deepseek ▸ generating summary + test plan…"),
+        ("ok",   "✓ PR body drafted (verified)"),
+        ("gap",  ""),
+        ("ok",   "✓ PR #57 opened → dev"),
+        ("path", "  https://github.com/YUVARAJ-R-ai/DevOrchestrator/pull/57"),
+        ("dim",  "✓ issue #42 → In review · mesh updated"),
+    ],
+    "mesh (team watch)": [
+        ("cmd",  "devorchestrator mesh --watch"),
+        ("ok",   "✓ mesh online · project=hackathon · refresh 2s"),
+        ("gap",  ""),
+        ("run",  "▶ active sessions"),
+        ("tool", "  harsha  · feature/spine-runner   · impl      · running · 12s ago"),
+        ("tool", "  ragav   · feature/ai-session     · research  · running · 4s ago"),
+        ("dim",  "  tharun  · feature/mesh-gates      · impl      · idle    · 2m ago"),
+        ("gap",  ""),
+        ("run",  "▶ who is touching what"),
+        ("path", "  gateway/         ← you (feature/issue-42-rate-limiter)"),
+        ("path", "  mesh/store.py    ← tharun"),
+        ("warn", "  ⚠ sessions/       ← ragav & harsha both editing"),
+        ("gap",  ""),
+        ("run",  "▶ recent decisions"),
+        ("dim",  "  ragav  ▸ use libtmux over raw subprocess for sessions"),
+        ("dim",  "  tharun ▸ project-scope every mesh row (.eq project)"),
+        ("wait", "● live ▸ streaming team activity…"),
+    ],
+}
+
+_TERM_COLOR = {
+    "cmd": "#e6edf3", "ok": "#56d364", "run": "#5eead4", "tool": "#79c0ff",
+    "path": "#d2a8ff", "dim": "#6b7a89", "warn": "#f0b429", "err": "#ff7b72",
+    "ask": "#f0b429", "wait": "#f0b429", "gap": "#6b7a89",
+}
+
+
+def _terminal_html(scenario: str, nonce: int) -> tuple[str, int]:
+    """Build a self-contained animated terminal iframe for one scenario."""
+    script = _TERM_SCRIPTS[scenario]
+    tabs = _TERM_TABS[scenario]
+    step = 0.16  # seconds between line reveals
+
+    tab_html = "".join(
+        f'<span class="tab {"on" if active else ""}">{escape(name)}'
+        f'{" ●" if active else ""}</span>'
+        for name, active in tabs
+    )
+
+    rows = []
+    for i, (kind, text) in enumerate(script):
+        delay = f"{i * step:.2f}s"
+        color = _TERM_COLOR.get(kind, "#c9d4df")
+        prefix = "<span class='pr'>$ </span>" if kind == "cmd" else ""
+        body = escape(text) if text else "&nbsp;"
+        rows.append(
+            f'<div class="tl" style="animation-delay:{delay};color:{color}">'
+            f'{prefix}{body}</div>'
+        )
+    cursor_delay = f"{len(script) * step:.2f}s"
+    rows.append(
+        f'<div class="tl" style="animation-delay:{cursor_delay};color:#5eead4">'
+        f'<span class="pr">$ </span><span class="cur"></span></div>'
+    )
+    body_html = "\n".join(rows)
+    height = 132 + (len(script) + 1) * 23
+
+    html = f"""
+    <!-- nonce:{nonce} -->
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+      * {{ box-sizing:border-box; }}
+      .term {{ font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
+        border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,.10);
+        box-shadow:0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(94,234,212,.05);
+        background:#05080b; }}
+      .bar {{ display:flex; align-items:center; gap:.55rem; padding:.5rem .8rem;
+        background:linear-gradient(180deg,#10161d,#0b1016);
+        border-bottom:1px solid rgba(255,255,255,.08); }}
+      .dot {{ width:11px; height:11px; border-radius:50%; }}
+      .d1 {{ background:#ff5f56; }} .d2 {{ background:#ffbd2e; }} .d3 {{ background:#27c93f; }}
+      .tabs {{ display:flex; gap:.35rem; margin-left:.6rem; overflow:hidden; }}
+      .tab {{ font-size:.68rem; color:#6b7a89; padding:.12rem .5rem; border-radius:6px;
+        border:1px solid transparent; white-space:nowrap; }}
+      .tab.on {{ color:#5eead4; background:rgba(94,234,212,.09);
+        border-color:rgba(94,234,212,.30); }}
+      .sid {{ margin-left:auto; font-size:.66rem; color:#41505f; letter-spacing:.04em; }}
+      .body {{ padding:.85rem 1rem 1.1rem; font-size:.83rem; line-height:1.55;
+        position:relative; background:
+          repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 3px),
+          radial-gradient(120% 90% at 50% -20%, rgba(94,234,212,.05), transparent 60%),
+          #05080b; }}
+      .tl {{ white-space:pre-wrap; opacity:0; transform:translateY(4px);
+        animation:fu .22s ease forwards; }}
+      .pr {{ color:#5eead4; font-weight:700; }}
+      @keyframes fu {{ to {{ opacity:1; transform:none; }} }}
+      .cur {{ display:inline-block; width:8px; height:1.02em; background:#5eead4;
+        vertical-align:-2px; animation:bl 1.05s steps(1) infinite; }}
+      @keyframes bl {{ 50% {{ opacity:0; }} }}
+    </style>
+    <div class="term">
+      <div class="bar">
+        <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+        <div class="tabs">{tab_html}</div>
+        <span class="sid">session · claude-code</span>
+      </div>
+      <div class="body">
+        {body_html}
+      </div>
+    </div>
+    """
+    return html, height
+
+
+# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
 st.markdown('<div class="hero-kicker">the ai-native sdlc operating layer</div>',
@@ -211,6 +384,29 @@ for col, (n, t, d, human) in zip(cols, stages, strict=False):
 st.markdown(
     '<div class="muted">👤 = the only two human moments: pick a task, approve the PR.</div>',
     unsafe_allow_html=True,
+)
+st.write("")
+
+# ---------------------------------------------------------------------------
+# Virtual terminal — scripted preview of a live orchestration session
+# ---------------------------------------------------------------------------
+st.markdown("### live session  ·  virtual terminal")
+tcol, bcol = st.columns([3, 1])
+with tcol:
+    scenario = st.selectbox(
+        "scenario", list(_TERM_SCRIPTS), label_visibility="collapsed",
+    )
+with bcol:
+    if st.button("▶ replay", use_container_width=True):
+        st.session_state["term_nonce"] = st.session_state.get("term_nonce", 0) + 1
+
+# nonce forces the iframe to remount so the animation replays on change/replay
+nonce = st.session_state.get("term_nonce", 0) + hash(scenario) % 1000
+term_html, term_height = _terminal_html(scenario, nonce)
+components.html(term_html, height=term_height, scrolling=False)
+st.caption(
+    "Scripted preview of what `devorchestrator " + scenario.split()[0] + "` streams in a live "
+    "Claude Code / tmux session — pick a scenario or hit replay to watch it stream again."
 )
 st.write("")
 

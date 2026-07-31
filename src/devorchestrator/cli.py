@@ -10,8 +10,8 @@ Entry point (see pyproject.toml [project.scripts]): ``devorchestrator.cli:main``
 from __future__ import annotations
 
 import os
-import re
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -20,8 +20,14 @@ import yaml
 from rich.console import Console
 
 from . import __version__
-from .config import Config, ConfigError, load_config
-from .pipeline import LanePending, PipelineAborted, PipelineError, build_pipeline
+from .config import CONFIG_FILENAME, Config, ConfigError, load_config
+from .pipeline import (
+    LanePending,
+    PipelineAborted,
+    PipelineError,
+    build_pipeline,
+    load_pipeline_context,
+)
 from .review import build_review
 
 app = typer.Typer(
@@ -288,15 +294,22 @@ def init(
         console.print(f"[dim]  key env: {config.mesh.supabase_key_env}[/]")
 
         key = os.environ.get(config.mesh.supabase_key_env, "")
-        if key:
-            from .mesh.store import SupabaseMesh, create_supabase_client
-            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
-            mesh.emit("dev_joined", "init", {"dev": config.name})
-            console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
-        else:
+        if not key:
             console.print(
                 f"[yellow]⚠  ${config.mesh.supabase_key_env} not set — mesh registration skipped[/]"
             )
+        else:
+            from .mesh.store import SupabaseMesh, create_supabase_client
+            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            if mesh.healthy():
+                mesh.emit("dev_joined", "init", {"dev": config.name})
+                console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
+            else:
+                console.print(
+                    f"[yellow]⚠  mesh unreachable — {mesh.last_error}[/]\n"
+                    "    (key likely belongs to a different project than mesh.supabase_url, "
+                    "or the tables aren't created yet. The loop runs fine without the mesh.)"
+                )
 
     if migrate and config.mesh.supabase_url:
         dsn = os.environ.get("SUPABASE_DSN", "")
@@ -350,54 +363,57 @@ def pr(
         True, "--autofix/--no-autofix", help="Auto-fix on check failure.",
     ),
 ) -> None:
-    """Run quality gates (autofix on failure), then open a PR with an AI description."""
-    config = _load_or_exit(ctx, check_env=False)
-    from .checks.runner import SubprocessCheckRunner
-    if autofix_on:
-        from .checks.autofix import autofix as _autofix
-        results = _autofix(
-            SubprocessCheckRunner(all_checks=all_checks), max_retries=config.autofix_retries
-        )
-    else:
-        runner = SubprocessCheckRunner(all_checks=all_checks)
-        results = runner.run_all()
-        SubprocessCheckRunner.render(results)
+    """Run quality gates (autofix on failure), then open a PR with an AI description.
 
-    if results and not all(r.passed for r in results):
-        console.print("[red]✗ checks still failing — not opening a PR.[/]")
-        raise typer.Exit(code=1)
+    Everything here runs through Pipeline.prepare_pr — the same checks → autofix →
+    describe → open_pr → mesh → notify sequence the pipeline tests cover. It used
+    to be reimplemented inline, which meant the autofix path went through
+    checks/autofix.py (which only *logs* that it would re-invoke the agent, and
+    never does) instead of the pipeline's loop that actually re-runs the session.
+    """
+    config = _load_or_exit(ctx, check_env=False)
+    try:
+        pipeline = build_pipeline(
+            config,
+            on_event=lambda m: console.print(f"[dim]›[/] {m}"),
+            all_checks=all_checks,
+        )
+    except LanePending as exc:
+        _pending(exc)
+        return
 
     branch = _detect_branch()
-    issue_id = _issue_id_from_branch(branch)
+    # Cheap guard first: catches the common "I'm still on dev" mistake with a
+    # message naming the branch, before we go looking for a saved context.
+    if branch == base or branch in {"dev", "main", "master", "unknown"}:
+        console.print(
+            f"[red]✗ you're on '{branch}', not a feature branch[/] — can't open a PR "
+            f"from '{branch}' into '{base}'.\n"
+            "    Run [bold]devorchestrator start[/] first (it creates + checks out a "
+            "feature branch, runs the AI sessions, and commits the work); then run "
+            "[bold]devorchestrator pr[/] from that branch."
+        )
+        raise typer.Exit(code=1)
 
-    from .pr_description import generate_pr_description, save_pr_description
+    pctx = load_pipeline_context(branch)
+    if pctx is None:
+        console.print(
+            f"[red]✗[/] No saved task context for [cyan]{branch}[/].\n"
+            "  → run [bold]devorchestrator start[/] first (it records the issue this "
+            "branch belongs to)."
+        )
+        raise typer.Exit(code=1)
+    if base != pctx.branch.base:
+        # --base overrides what start() recorded.
+        pctx.branch = replace(pctx.branch, base=base)
 
-    desc = generate_pr_description(branch, base=base)
-    out = save_pr_description(desc, branch)
-    console.print(f"[dim]PR description saved to {out}[/]")
+    try:
+        pctx = pipeline.prepare_pr(pctx, autofix=autofix_on)
+    except PipelineError as exc:
+        console.print(f"[red]✗[/] {exc}")
+        raise typer.Exit(code=1) from exc
 
-    from .contracts import BranchRef
-    from .integrations.github_git import GithubGit
-
-    git = GithubGit(url=config.git.url, token=os.environ[config.git.token_env])
-    branch_ref = BranchRef(name=branch, issue_id=issue_id or "", base=base)
-    title = _title_from_branch(branch, issue_id)
-    pull_request = git.open_pr(branch_ref, title=title, body=desc)
-    console.print(f"[green]✓ PR opened:[/] {pull_request.url}")
-
-    key = os.environ.get(config.mesh.supabase_key_env, "")
-    if config.mesh.supabase_url and key:
-        from .mesh.store import SupabaseMesh, create_supabase_client
-
-        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
-        mesh.emit("pr_opened", branch, {
-            "dev": config.name, "pr_url": pull_request.url, "pr_number": pull_request.number,
-        })
-
-    if config.notify:
-        notifier = config.notify.build_notifier()
-        if notifier:
-            notifier.notify(f"PR ready: {title} — {pull_request.url} ({config.name})")
+    console.print(f"[green]✓ PR opened:[/] {pctx.pull_request.url}")
 
 
 def _detect_branch() -> str:
@@ -410,20 +426,9 @@ def _detect_branch() -> str:
         return "unknown"
 
 
-def _issue_id_from_branch(branch: str) -> str | None:
-    """Recover the issue number from `feature/issue-N-slug` (Issue.branch_slug())."""
-    match = re.search(r"issue-(\d+)-", branch)
-    return match.group(1) if match else None
-
-
-def _title_from_branch(branch: str, issue_id: str | None) -> str:
-    """Best-effort human title from the branch slug (no per-number issue fetch yet)."""
-    slug = branch.removeprefix("feature/").removeprefix("fix/")
-    if issue_id:
-        slug = re.sub(rf"^issue-{issue_id}-", "", slug)
-    words = slug.replace("-", " ").strip()
-    prefix = f"issue #{issue_id}: " if issue_id else ""
-    return f"{prefix}{words}" if words else branch
+# _issue_id_from_branch / _title_from_branch lived here to reconstruct an
+# approximate issue title from the branch slug. The PR now carries the real
+# issue title, read from the context.json that start() saves.
 
 
 @app.command()

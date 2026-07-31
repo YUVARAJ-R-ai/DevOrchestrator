@@ -78,7 +78,17 @@ class GithubGit:
             f"{_GITHUB_API}/repos/{self._owner}/{self._repo}/git/refs",
             json={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
         )
-        resp.raise_for_status()
+        # 422 "Reference already exists" is the common re-run case (a prior run
+        # left the branch behind). Rather than crash, reset the existing branch
+        # to base so the run starts clean and re-runs are idempotent.
+        if resp.status_code == 422:
+            reset = self._client.patch(
+                f"{_GITHUB_API}/repos/{self._owner}/{self._repo}/git/refs/heads/{branch_name}",
+                json={"sha": base_sha, "force": True},
+            )
+            reset.raise_for_status()
+        else:
+            resp.raise_for_status()
 
         return BranchRef(
             name=branch_name,

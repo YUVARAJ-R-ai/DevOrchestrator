@@ -91,3 +91,24 @@ def test_mesh_satisfies_protocol() -> None:
 
     client = _make_client()
     assert isinstance(SupabaseMesh(client), Mesh)  # type: ignore[arg-type]
+
+
+class _BrokenClient:
+    """A client whose every call raises — simulates a 401 / missing table."""
+
+    def table(self, *_a, **_k):
+        raise RuntimeError("Invalid API key")
+
+
+def test_mesh_operations_are_non_fatal_when_backend_errors() -> None:
+    """A misconfigured mesh (wrong key, missing tables) must degrade, never crash
+    — the loop's observability is optional. Regression for the init 401 traceback."""
+    mesh = SupabaseMesh(_BrokenClient())  # type: ignore[arg-type]
+
+    # writes swallow the error, reads return empty, healthy() reports False
+    mesh.emit("dev_joined", "init", {"dev": "yuvaraj"})  # must not raise
+    assert mesh.who_is_touching("x") == []
+    assert mesh.list_modules() == []
+    assert mesh.recent_decisions() == []
+    assert mesh.healthy() is False
+    assert mesh.last_error and "Invalid API key" in mesh.last_error

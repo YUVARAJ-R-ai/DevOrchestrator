@@ -183,6 +183,8 @@ notify: { type: mattermost, webhook_env: MATTERMOST_WEBHOOK }
 
 | Doc | What's in it |
 |---|---|
+| **[docs/DEMO.md](docs/DEMO.md)** | **Start here to run it.** Setup, the three commands, what to narrate, and what to do when something breaks |
+| [docs/GAPS.md](docs/GAPS.md) | Honest inventory of what's finished vs. what's still open |
 | **[docs/vision.md](docs/vision.md)** | The complete AI-Native Enterprise vision, the design stance, and open questions |
 | **[docs/TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md)** | 18h hackathon: 4 conflict-free lanes, wave timeline, git flow, vendored skills |
 | **[docs/spine.md](docs/spine.md)** | Lane A full reference: every `contracts.py` type/Protocol, `pipeline.py`/`review.py` walkthroughs, adapter skeletons to copy-paste, testing patterns, troubleshooting |

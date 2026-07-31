@@ -53,7 +53,11 @@ def agent(tmp_path):
             if not m:
                 sys.exit("no artifact path in prompt")
             target = pathlib.Path(m.group(1))
-            if "implement every sub-task" in prompt:
+            # Discriminate on wording from the real prompts/impl.md header. The
+            # old check ("implement every sub-task") matched pipeline.py's
+            # since-deleted inline prompt, so it stopped firing once the
+            # pipeline switched to the real template.
+            if "implementation session" in prompt:
                 text = target.read_text()
                 target.write_text(text.replace("- [ ]", "- [x]"))
                 print("agent: implemented")

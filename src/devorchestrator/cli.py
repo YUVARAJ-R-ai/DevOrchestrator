@@ -549,7 +549,10 @@ def mesh(
     mesh_inst = _mesh_or_exit(config)
 
     if check:
-        warnings = _mesh_call("check module overlap", warn_on_overlap, mesh_inst, check)
+        warnings = _mesh_call(
+            "check module overlap", warn_on_overlap, mesh_inst, check,
+            self_dev=config.name,
+        )
         if warnings:
             console.print("[bold]Module overlap warnings:[/]")
             for w in warnings:
@@ -579,7 +582,10 @@ def decision(
     console.print(f"[green]Decision logged:[/] {message}")
 
     from .mesh.conflict import warn_on_overlap
-    warnings = _mesh_call("check module overlap", warn_on_overlap, mesh_inst, [module])
+    warnings = _mesh_call(
+        "check module overlap", warn_on_overlap, mesh_inst, [module],
+        self_dev=config.name,
+    )
     if warnings:
         console.print()
         console.print("[yellow]Note: overlapping activity on this module:[/]")

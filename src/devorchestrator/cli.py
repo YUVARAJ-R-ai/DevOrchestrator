@@ -602,11 +602,18 @@ def mesh(
     check: list[str] = typer.Option(
         [], "--check", "-c", help="Check if any of these modules have overlapping activity.",
     ),
+    watch: bool = typer.Option(
+        False, "--watch", "-w",
+        help="Live, auto-refreshing view of active sessions (Ctrl-C to exit).",
+    ),
+    interval: float = typer.Option(
+        3.0, "--interval", help="Refresh interval in seconds for --watch.",
+    ),
 ) -> None:
-    """Show the live team activity table from the shared context mesh."""
+    """Show the team activity from the shared context mesh (add --watch for live)."""
     config = _load_or_exit(ctx, check_env=False)
     from .mesh.conflict import warn_on_overlap
-    from .mesh.dashboard import render_dashboard
+    from .mesh.dashboard import render_dashboard, render_dashboard_live
 
     mesh_inst = _mesh_or_exit(config)
 
@@ -623,7 +630,10 @@ def mesh(
         else:
             console.print("[green]✓ No overlapping activity detected[/]\n")
 
-    _mesh_call("read team activity", render_dashboard, mesh_inst)
+    if watch:
+        render_dashboard_live(mesh_inst, console=console, interval=interval)
+    else:
+        _mesh_call("read team activity", render_dashboard, mesh_inst)
 
 
 @app.command()

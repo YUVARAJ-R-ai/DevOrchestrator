@@ -300,3 +300,101 @@ def test_describe_pr_forwards_config_to_the_brain(monkeypatch: pytest.MonkeyPatc
     pipeline._describe_pr(ctx)
 
     assert seen["config"] is config
+
+
+def test_missing_token_raises_config_error_not_keyerror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unset token must read as a config problem, not a bare KeyError.
+
+    build_pipeline reads tokens long after load_config's check_env pass, so a
+    config loaded with check_env=False reached os.environ[...] directly.
+    """
+    from devorchestrator.config import ConfigError
+
+    monkeypatch.delenv("BOARD_TOKEN", raising=False)
+    monkeypatch.delenv("GIT_TOKEN", raising=False)
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    with pytest.raises(ConfigError, match="BOARD_TOKEN") as exc:
+        build_pipeline(config)
+    assert exc.value.hint is not None
+
+
+def test_build_review_missing_token_raises_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devorchestrator.config import ConfigError
+    from devorchestrator.review import build_review
+
+    monkeypatch.delenv("GIT_TOKEN", raising=False)
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    with pytest.raises(ConfigError, match="GIT_TOKEN"):
+        build_review(config)
+
+
+def test_git_failure_raises_pipeline_error_with_stderr(tmp_path, branch, issue, monkeypatch):
+    """Git's own explanation must survive — CalledProcessError drops it."""
+    pipe, _, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 1, stdout="", stderr="! [remote rejected] protected branch")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    with pytest.raises(PipelineError, match="protected branch"):
+        pipe.start(select=lambda issues: issues[0])
+
+
+def test_git_helper_returns_result_on_success(tmp_path, branch, issue, monkeypatch):
+    pipe, _, _ = _pipeline(tmp_path, branch, issue)
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+    assert pipe._git(["status"], "boom").stdout == "ok"
+
+
+def test_start_refuses_to_run_on_a_dirty_tree(tmp_path, branch, issue, monkeypatch):
+    """git add -A would sweep unrelated edits into the AI's commit."""
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout=" M unrelated_file.py\n", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    with pytest.raises(PipelineAborted, match="not clean"):
+        pipe.start(select=lambda issues: issues[0])
+    # aborted before doing any work
+    assert research.prompts == []
+
+
+def test_start_proceeds_on_a_clean_tree(tmp_path, branch, issue, monkeypatch):
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    pipe.start(select=lambda issues: issues[0])
+    assert len(research.prompts) == 1
+
+
+def test_clean_tree_not_checked_when_local_git_is_off(tmp_path, branch, issue):
+    """Without local_git nothing commits, so the tree state is irrelevant."""
+    pipe, research, _ = _pipeline(tmp_path, branch, issue)  # local_git defaults False
+    pipe.start(select=lambda issues: issues[0])
+    assert len(research.prompts) == 1

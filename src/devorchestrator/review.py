@@ -176,7 +176,7 @@ def build_review(config: Config, *, console: Console | None = None) -> ReviewGat
     import importlib.util
     import os
 
-    from .config import GitType
+    from .config import GitType, require_env
 
     component, module, where = _GIT_ADAPTER
     try:
@@ -197,7 +197,7 @@ def build_review(config: Config, *, console: Console | None = None) -> ReviewGat
 
     git = GithubGit(
         url=config.git.url,
-        token=os.environ[config.git.token_env],
+        token=require_env("git.token_env", config.git.token_env),
         # Requests review from this login on every PR — without it nothing is
         # ever "awaiting review" and `devorchestrator review` lists nothing.
         reviewer=config.git.reviewer,
@@ -208,7 +208,10 @@ def build_review(config: Config, *, console: Console | None = None) -> ReviewGat
     if config.mesh.supabase_url and mesh_key:
         from .mesh.store import SupabaseMesh, create_supabase_client
 
-        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, mesh_key))
+        mesh = SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, mesh_key),
+            project=config.project_key,
+        )
 
     notifier = config.notify.build_notifier() if config.notify is not None else None
 

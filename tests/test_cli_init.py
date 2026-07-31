@@ -229,3 +229,66 @@ def test_github_connection_skips_when_no_token(
     _test_github_connection(_config())
 
     assert "skipping connection test" in capsys.readouterr().out
+
+
+# --- #54: project scope detection -------------------------------------------
+
+
+def _cfg(project_number: int | None):
+    data = {
+        "name": "t", "role": "dev", "agent": "claude",
+        "board": {"type": "github", "url": "https://github.com/acme/repo",
+                  "token_env": "GITHUB_TOKEN"},
+        "git": {"type": "github", "url": "https://github.com/acme/repo",
+                "token_env": "GITHUB_TOKEN"},
+    }
+    if project_number is not None:
+        data["board"]["project_number"] = project_number
+    return Config.model_validate(data)
+
+
+class _Resp:
+    def __init__(self, headers=None):
+        self.headers = headers or {}
+
+
+def test_project_scope_missing_is_reported(capsys):
+    from devorchestrator.cli import _check_project_scope
+
+    _check_project_scope(_cfg(10), _Resp({"X-OAuth-Scopes": "repo, gist"}), {})
+
+    out = capsys.readouterr().out
+    assert "missing the" in out and "project" in out
+
+
+def test_project_scope_present_is_confirmed(capsys):
+    from devorchestrator.cli import _check_project_scope
+
+    _check_project_scope(_cfg(10), _Resp({"X-OAuth-Scopes": "repo, project"}), {})
+
+    assert "project scope" in capsys.readouterr().out
+
+
+def test_project_scope_not_checked_without_project_number(capsys):
+    """Plain Issues REST only needs repo — don't nag about a scope nothing uses."""
+    from devorchestrator.cli import _check_project_scope
+
+    _check_project_scope(_cfg(None), _Resp({"X-OAuth-Scopes": "repo"}), {})
+
+    assert capsys.readouterr().out == ""
+
+
+def test_fine_grained_token_falls_back_to_a_graphql_probe(monkeypatch, capsys):
+    """Fine-grained PATs send no X-OAuth-Scopes header, so guessing is wrong."""
+    from devorchestrator.cli import _check_project_scope
+
+    class _Probe:
+        status_code = 200
+
+        def json(self):
+            return {"data": {"viewer": {"login": "x"}}}
+
+    monkeypatch.setattr("httpx.post", lambda *a, **kw: _Probe())
+    _check_project_scope(_cfg(10), _Resp({}), {})
+
+    assert "GraphQL" in capsys.readouterr().out

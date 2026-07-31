@@ -53,7 +53,7 @@ Without `tmux` everything still runs, but headless — **you lose the two live p
 
 ### 4. Clean working tree
 
-`git status` should be empty before you start. The commit step runs `git add -A`, so anything uncommitted sitting around gets swept into the AI's commit.
+`git status` should be empty before you start. `devorchestrator start` now checks this and refuses to run on a dirty tree — the commit step stages with `git add -A`, so anything uncommitted would be swept into the AI's commit and attributed to the issue. If it stops you, commit or stash and re-run; nothing is lost.
 
 ### 5. The seeded issue
 

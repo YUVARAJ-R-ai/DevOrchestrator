@@ -597,6 +597,70 @@ def status(ctx: typer.Context) -> None:
 
 
 @app.command()
+def sessions(
+    attach: str = typer.Option("", "--attach", "-a", help="Attach to a session by name."),
+    kill: str = typer.Option("", "--kill", "-k", help="Kill a session by name."),
+    reap: bool = typer.Option(False, "--reap", help="Kill every finished, unattached session."),
+) -> None:
+    """List, attach to, or clean up orchestrator tmux sessions (issue #60).
+
+    Lane C owns the implementation (``sessions/manage.py``); this command is the
+    thin CLI surface over it. Takes no config — it only talks to tmux, so it
+    still works in a workspace with no devOrchestrator.yaml.
+    """
+    from rich.table import Table
+
+    from .sessions.manage import attach_session, kill_session, list_sessions, reap_stale_sessions
+
+    if attach:
+        if attach_session(attach) != 0:
+            console.print(f"[red]✗ could not attach to {attach}[/] — no tmux, or not a terminal.")
+            raise typer.Exit(1)
+        return
+
+    if kill:
+        ok = kill_session(kill)
+        console.print(
+            f"[green]✓ killed {kill}[/]" if ok
+            else f"[red]✗ could not kill {kill}[/] (orchestrator sessions start with 'do-')"
+        )
+        raise typer.Exit(0 if ok else 1)
+
+    if reap:
+        killed = reap_stale_sessions()
+        console.print(
+            f"[green]✓ reaped {len(killed)}:[/] {', '.join(killed)}" if killed
+            else "[dim]nothing to reap — no finished sessions.[/]"
+        )
+        return
+
+    active = list_sessions()
+    if not active:
+        console.print("[dim]No orchestrator sessions running.[/]")
+        return
+
+    table = Table(title="Orchestrator tmux sessions")
+    table.add_column("Session", style="cyan")
+    table.add_column("Branch")
+    table.add_column("Panes", justify="right")
+    table.add_column("State")
+    for info in active:
+        state = (
+            "[yellow]attached[/]" if info.attached
+            else "[dim]finished[/]" if info.stale
+            else "[green]running[/]"
+        )
+        table.add_row(
+            info.name,
+            info.branch or "[dim]?[/]",
+            f"{info.panes - info.dead_panes}/{info.panes}",
+            state,
+        )
+    console.print(table)
+    console.print("[dim]attach: devorchestrator sessions --attach <name>[/]")
+
+
+@app.command()
 def mesh(
     ctx: typer.Context,
     check: list[str] = typer.Option(

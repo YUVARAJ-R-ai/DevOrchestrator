@@ -37,12 +37,14 @@ from rich.console import Console
 
 __all__ = [
     "ClaudeSession",
+    "RateLimited",
     "SessionFailed",
     "SessionKind",
     "SessionState",
     "SessionStatus",
     "TmuxRunner",
     "artifact_path",
+    "is_rate_limited",
     "prompt_path",
     "tmux_available",
     "work_dir",
@@ -59,6 +61,33 @@ ORCHESTRATOR_DIR = Path(".orchestrator")
 #: unseen. Overridable for stricter policy:
 #: ``DEVORCH_CLAUDE_ARGS="--permission-mode plan"``.
 DEFAULT_CLAUDE_ARGS = ("--permission-mode", "acceptEdits")
+
+#: Output signatures that mean "the agent was throttled", not "the work failed"
+#: (issue #52). Matched case-insensitively against the tee'd log. Kept broad on
+#: purpose: the cost of a false positive is one wasted retry, while the cost of
+#: a false negative is losing a long session's work outright.
+RATE_LIMIT_PATTERNS = (
+    r"rate[ _-]?limit",
+    r"usage limit reached",
+    r"quota (?:exceeded|exhausted)",
+    r"too many requests",
+    r"\b429\b",
+    r"overloaded_error",
+    r"insufficient[_ ]quota",
+)
+
+_RATE_LIMIT_RE = re.compile("|".join(RATE_LIMIT_PATTERNS), re.IGNORECASE)
+
+#: Retries after a throttle, and the base for exponential backoff. Three waits
+#: of 60s/120s/240s span ~7 minutes, which covers a short rolling-window limit
+#: without stalling a demo indefinitely.
+DEFAULT_RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_BACKOFF_S = 60.0
+
+
+def is_rate_limited(text: str) -> bool:
+    """True when session output carries a throttling signature (issue #52)."""
+    return bool(text) and _RATE_LIMIT_RE.search(text) is not None
 
 
 class SessionKind(StrEnum):
@@ -95,6 +124,7 @@ class SessionState:
     headless: bool = False
     tmux_session: str | None = None
     tmux_window: str | None = None
+    tmux_pane: str | None = None
     status: SessionStatus = SessionStatus.pending
     exit_code: int | None = None
     started_at: datetime | None = None
@@ -209,6 +239,56 @@ def _branch_from_prompt(prompt: str) -> str:
     )
 
 
+def _split_pane(window):
+    """Split *window* side-by-side, tolerating libtmux API drift (issue #60).
+
+    ``split_window`` was renamed to ``split`` mid-libtmux-2.x, and the keyword
+    for "don't focus it" moved too. Returns ``None`` if no spelling worked, and
+    the caller falls back to a separate window — a cramped layout is a far
+    better outcome than a session that will not start.
+    """
+    for attempt in (
+        lambda: window.split(attach=False, direction="right"),
+        lambda: window.split(attach=False),
+        lambda: window.split_window(attach=False, vertical=False),
+        lambda: window.split_window(attach=False),
+    ):
+        try:
+            pane = attempt()
+        except Exception:  # noqa: BLE001 — try the next spelling
+            continue
+        if pane is not None:
+            return pane
+    return None
+
+
+def _select_layout(window, layout: str = "even-horizontal") -> None:
+    """Even out the panes so research and impl get equal width. Best-effort."""
+    for attempt in (
+        lambda: window.select_layout(layout),
+        lambda: window.cmd("select-layout", layout),
+    ):
+        try:
+            attempt()
+            return
+        except Exception:  # noqa: BLE001 — layout is cosmetic
+            continue
+
+
+def _respawn(pane, command: str) -> bool:
+    """Restart a finished pane in place, so repeat runs of one kind reuse it.
+
+    ``remain-on-exit`` leaves a dead pane sitting there holding its last output;
+    ``send_keys`` to it does nothing. Without this, every autofix attempt would
+    split another pane and the layout would shred after two retries.
+    """
+    try:
+        pane.cmd("respawn-pane", "-k", command)
+    except Exception:  # noqa: BLE001 — caller falls back to a fresh split
+        return False
+    return True
+
+
 def _set_remain_on_exit(window) -> None:
     """Keep a finished pane on screen instead of letting it vanish.
 
@@ -260,6 +340,12 @@ class TmuxRunner:
         self.headless = force_headless or not tmux_available()
         self._server = None
         self._tmux_session = None
+        self._window = None
+        self._panes: dict[SessionKind, object] = {}
+        #: True only when *this* runner created the tmux session. Decides whether
+        #: the window's starting pane is free to take or already belongs to
+        #: someone else — see :meth:`_pane_for`.
+        self._created_session = False
         self._processes: dict[SessionKind, subprocess.Popen] = {}
 
     # -- lifecycle ---------------------------------------------------------
@@ -306,19 +392,18 @@ class TmuxRunner:
         import libtmux
 
         self._server = self._server or libtmux.Server()
-        window_name = f"{state.kind.value}-{_tmux_name(self.branch)}"
+        # One window per task, panes split inside it (issue #60): research left,
+        # impl right, both visible at once. Previously each kind opened its own
+        # window, so watching the agent work meant cycling windows to find the
+        # live one — and you could never see the plan and its execution together.
+        window_name = _tmux_name(self.branch)
 
         if self._tmux_session is None:
-            # Reuse the branch's session if it already exists, so research and
-            # impl windows accumulate and a dev who attaches sees the whole
-            # task. Creating with kill_session=True would discard the research
-            # pane the moment implementation starts.
+            # Reuse the branch's session if it already exists, so a dev who
+            # attaches sees the whole task. Creating with kill_session=True
+            # would discard the research pane the moment implementation starts.
             self._tmux_session = self._attach_or_create(window_name)
-            window = self._tmux_session.active_window
-            if window.window_name != window_name:
-                window = self._new_window(window_name)
-        else:
-            window = self._new_window(window_name)
+        window = self._task_window(window_name)
 
         # Panes are exec'd, so they die the instant the agent exits — taking
         # their output, and the whole session, with them. remain-on-exit keeps
@@ -327,14 +412,80 @@ class TmuxRunner:
         _set_remain_on_exit(window)
 
         # bash -o pipefail so PIPESTATUS is meaningful whatever the login shell.
-        window.active_pane.send_keys(f"exec bash -o pipefail -c {shlex.quote(command)}", enter=True)
+        shell_command = f"exec bash -o pipefail -c {shlex.quote(command)}"
+        pane = self._pane_for(state.kind, window, shell_command)
 
         state.tmux_session = self.session_name
         state.tmux_window = window_name
+        state.tmux_pane = str(getattr(pane, "pane_index", "") or "")
         console.print(
             f"[cyan]›[/cyan] {state.name} running in tmux — "
             f"watch it: [bold]tmux attach -t {self.session_name}[/bold]"
         )
+
+    def _task_window(self, window_name: str):
+        """The single window all of this task's panes live in."""
+        if self._window is not None:
+            return self._window
+        window = self._tmux_session.active_window
+        if window.window_name != window_name:
+            try:
+                window.rename_window(window_name)
+            except Exception:  # noqa: BLE001 — the name is only a label
+                pass
+        self._window = window
+        return window
+
+    def _pane_for(self, kind: SessionKind, window, shell_command: str):
+        """The pane this kind of session runs in, creating or reusing as needed.
+
+        Three cases, in order: a repeat run of the same kind (autofix retries)
+        respawns its existing pane so the layout stays stable; the runner that
+        *created* the session takes the pane tmux opened with; anything else
+        splits a new one.
+
+        The ``_created_session`` half is load-bearing. ``pipeline.py`` builds a
+        separate ``ClaudeSession`` — and so a separate ``TmuxRunner`` — for
+        research and for impl. Deciding "am I first?" from this instance's own
+        empty ``_panes`` dict makes *both* runners think they are, and the impl
+        pane silently overwrites the research pane instead of splitting beside
+        it, destroying the plan the dev was reading.
+        """
+        existing = self._panes.get(kind)
+        if existing is not None and _respawn(existing, shell_command):
+            return existing
+
+        if not self._panes and self._created_session:
+            pane = window.active_pane
+        else:
+            pane = _split_pane(window)
+            if pane is None:
+                # No working split spelling — fall back to the pre-#60 layout
+                # rather than failing to run the agent at all.
+                fallback = self._new_window(f"{kind.value}-{_tmux_name(self.branch)}")
+                _set_remain_on_exit(fallback)
+                pane = fallback.active_pane
+            else:
+                _select_layout(window)
+
+        self._panes[kind] = pane
+        pane.send_keys(shell_command, enter=True)
+        return pane
+
+    def _reap_stale(self) -> None:
+        """Kill finished, unattached ``do-*`` sessions. Never raises.
+
+        Imported here rather than at module scope: ``manage`` imports this
+        module for the workspace root, so a top-level import would be circular.
+        """
+        try:
+            from devorchestrator.sessions.manage import reap_stale_sessions
+
+            killed = reap_stale_sessions(root=self.root)
+        except Exception:  # noqa: BLE001 — cleanup must never block a run
+            return
+        if killed:
+            console.print(f"[dim]reaped {len(killed)} finished tmux session(s)[/dim]")
 
     def _attach_or_create(self, window_name: str):
         """Return the branch's tmux session, creating it only if absent."""
@@ -343,6 +494,11 @@ class TmuxRunner:
                 return self._server.sessions.get(session_name=self.session_name)
         except Exception:  # noqa: BLE001 — a lookup failure just means "create it"
             pass
+        # About to add a session, so clear out finished ones first (issue #60).
+        # remain-on-exit means nothing ever cleans itself up, and a week of runs
+        # leaves a screenful of dead `do-*` sessions to kill by hand.
+        self._reap_stale()
+        self._created_session = True
         return self._server.new_session(
             session_name=self.session_name,
             start_directory=str(self.cwd),
@@ -458,6 +614,19 @@ class SessionFailed(RuntimeError):
     """
 
 
+class RateLimited(SessionFailed):
+    """The agent was throttled and never recovered within the retry budget (#52).
+
+    Subclasses :class:`SessionFailed` deliberately: every existing caller
+    (``pipeline.py``, the CLI) already handles a failed session correctly, and
+    none of them should have to learn a new exception to keep working. The
+    distinct type exists so a caller that *wants* to tell "we ran out of quota"
+    apart from "the agent got it wrong" can, since the remedy differs — wait
+    versus fix the prompt. Any partial work (the artifact, any commits) is left
+    on disk untouched.
+    """
+
+
 class ClaudeSession:
     """Lane C's :class:`~devorchestrator.contracts.AgentSession` implementation.
 
@@ -484,6 +653,8 @@ class ClaudeSession:
         mesh=None,  # contracts.Mesh | None — session lifecycle tracking (#56)
         dev: str = "unknown",
         heartbeat_interval: float = 15.0,
+        rate_limit_retries: int = DEFAULT_RATE_LIMIT_RETRIES,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.kind = kind
         self.branch = branch
@@ -495,6 +666,13 @@ class ClaudeSession:
         self._mesh = mesh
         self._dev = dev
         self._heartbeat_interval = heartbeat_interval
+        #: Count of lifecycle emits the mesh rejected. Surfaced rather than
+        #: silently dropped so a wholly unreachable mesh is diagnosable.
+        self._mesh_failures = 0
+        # Throttle retries (#52) only engage on a matched rate-limit signature,
+        # so the default path is unchanged. `sleep` is injectable for tests.
+        self.rate_limit_retries = rate_limit_retries
+        self._sleep = sleep
         self.runner = runner or (
             TmuxRunner(branch=branch, cwd=cwd, agent=agent, force_headless=headless, root=root)
             if branch is not None
@@ -511,8 +689,12 @@ class ClaudeSession:
         file on the line after ``research.run(...)`` returns, so the work must
         be done by then (see docs/spine.md §"AgentSession").
 
+        Retries with backoff if the agent was throttled rather than genuinely
+        failing (#52); each attempt reports its own lifecycle to the mesh (#56).
+
         Raises:
             SessionFailed: on a non-zero exit or a timeout.
+            RateLimited: when throttling outlasted the retry budget.
         """
         if self.branch is None:
             self.bind(_branch_from_prompt(prompt))
@@ -520,10 +702,52 @@ class ClaudeSession:
         path = prompt_path(self.branch, self.kind, root=self.root)
         path.write_text(prompt, encoding="utf-8")
 
-        # Session lifecycle tracking (#56): report start/heartbeat/end to the
-        # mesh so the source of truth reflects live sessions, not just pipeline
-        # milestones. All mesh calls are best-effort (SupabaseMesh swallows
-        # errors) so tracking never breaks the run.
+        for attempt in range(1, self.rate_limit_retries + 2):
+            state = self._run_once(path)
+            if state.ok:
+                return
+
+            reason = state.error or f"exit {state.exit_code}"
+            tail = self.capture(lines=15)
+            throttled = is_rate_limited(tail)
+            attempts_left = attempt <= self.rate_limit_retries
+
+            if throttled and attempts_left:
+                # Exponential: the point of backing off is to outlast a rolling
+                # window, and retrying immediately just burns another attempt.
+                backoff = RATE_LIMIT_BACKOFF_S * (2 ** (attempt - 1))
+                self._emit_lifecycle("session_rate_limited", {
+                    "attempt": attempt, "backoff_s": round(backoff, 1),
+                })
+                console.print(
+                    f"[yellow]{state.name} was rate-limited[/yellow] — retrying in "
+                    f"{backoff:.0f}s (attempt {attempt} of {self.rate_limit_retries})"
+                )
+                self._sleep(backoff)
+                continue
+
+            console.print(f"[red]{state.name} failed:[/red] {reason}")
+            if tail:
+                console.print(f"[dim]{tail}[/dim]")
+            if throttled:
+                # Distinguishable from an ordinary failure, per #52 — the caller
+                # can tell "we were throttled out" from "the work was wrong".
+                raise RateLimited(
+                    f"{self.kind.value} session still rate-limited after "
+                    f"{self.rate_limit_retries} retries"
+                )
+            raise SessionFailed(f"{self.kind.value} session failed: {reason}")
+
+    def _run_once(self, path: Path) -> SessionState:
+        """One spawn-and-wait cycle, bracketed by #56's lifecycle events.
+
+        Session lifecycle tracking reports start/heartbeat/end to the mesh so
+        the source of truth reflects live sessions, not just pipeline
+        milestones. All mesh calls are best-effort (SupabaseMesh swallows
+        errors) so tracking never breaks the run. Emitting per *attempt* rather
+        than per call means a throttled retry shows up as its own session in the
+        mesh, which is what makes the rate-limit event above readable.
+        """
         started = time.monotonic()
         self._emit_lifecycle("session_started", {})
         stop_heartbeat = self._start_heartbeat()
@@ -537,23 +761,29 @@ class ClaudeSession:
                 "duration_s": round(time.monotonic() - started, 1),
                 "files_touched": self._files_touched(),
             })
-
-        if not state.ok:
-            reason = state.error or f"exit {state.exit_code}"
-            tail = self.capture(lines=15)
-            console.print(f"[red]{state.name} failed:[/red] {reason}")
-            if tail:
-                console.print(f"[dim]{tail}[/dim]")
-            raise SessionFailed(f"{self.kind.value} session failed: {reason}")
+        return state
 
     # -- session lifecycle tracking (#56) ---------------------------------
 
     def _emit_lifecycle(self, event_type: str, extra: dict) -> None:
+        """Report one lifecycle event. Never raises.
+
+        The swallow is not redundant with ``SupabaseMesh``'s own error handling.
+        ``mesh`` is typed as the :class:`~devorchestrator.contracts.Mesh`
+        protocol, so it is whatever the caller injected — a different backend, a
+        test double, or a client whose transport raises before Supabase's own
+        ``try`` is reached. Without this, a dead mesh takes down the session it
+        was only supposed to be observing, which is exactly what issue #56's
+        "a dead/misconfigured mesh never breaks the session" rules out.
+        """
         if self._mesh is None:
             return
-        self._mesh.emit(event_type, self.branch or "unknown", {
-            "dev": self._dev, "branch": self.branch, "kind": self.kind.value, **extra,
-        })
+        try:
+            self._mesh.emit(event_type, self.branch or "unknown", {
+                "dev": self._dev, "branch": self.branch, "kind": self.kind.value, **extra,
+            })
+        except Exception:  # noqa: BLE001 — observability must never break a run
+            self._mesh_failures += 1
 
     def _files_touched(self) -> list[str]:
         """Uncommitted files the session changed, best-effort (empty on any error)."""

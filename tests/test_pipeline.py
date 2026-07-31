@@ -300,3 +300,37 @@ def test_describe_pr_forwards_config_to_the_brain(monkeypatch: pytest.MonkeyPatc
     pipeline._describe_pr(ctx)
 
     assert seen["config"] is config
+
+
+def test_missing_token_raises_config_error_not_keyerror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unset token must read as a config problem, not a bare KeyError.
+
+    build_pipeline reads tokens long after load_config's check_env pass, so a
+    config loaded with check_env=False reached os.environ[...] directly.
+    """
+    from devorchestrator.config import ConfigError
+
+    monkeypatch.delenv("BOARD_TOKEN", raising=False)
+    monkeypatch.delenv("GIT_TOKEN", raising=False)
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    with pytest.raises(ConfigError, match="BOARD_TOKEN") as exc:
+        build_pipeline(config)
+    assert exc.value.hint is not None
+
+
+def test_build_review_missing_token_raises_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devorchestrator.config import ConfigError
+    from devorchestrator.review import build_review
+
+    monkeypatch.delenv("GIT_TOKEN", raising=False)
+    config = make_config(
+        board={"type": "github", "url": "https://github.com/acme/repo", "token_env": "BOARD_TOKEN"},
+        git={"type": "github", "url": "https://github.com/acme/repo", "token_env": "GIT_TOKEN"},
+    )
+
+    with pytest.raises(ConfigError, match="GIT_TOKEN"):
+        build_review(config)

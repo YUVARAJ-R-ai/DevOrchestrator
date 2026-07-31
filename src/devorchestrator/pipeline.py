@@ -454,7 +454,7 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     import importlib.util
     import os
 
-    from .config import BoardType, GitType
+    from .config import BoardType, GitType, require_env
 
     for component, module, where in _REQUIRED_ADAPTERS:
         try:
@@ -484,13 +484,13 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
 
     board = GithubBoard(
         url=config.board.url,
-        token=os.environ[config.board.token_env],
+        token=require_env("board.token_env", config.board.token_env),
         dev_name=config.name,
         project_number=config.board.project_number,
     )
     git = GithubGit(
         url=config.git.url,
-        token=os.environ[config.git.token_env],
+        token=require_env("git.token_env", config.git.token_env),
         # Requests review from this login on every PR — without it nothing is
         # ever "awaiting review" and `devorchestrator review` lists nothing.
         reviewer=config.git.reviewer,

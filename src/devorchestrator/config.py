@@ -223,6 +223,24 @@ def _check_track_agrees(config: Config) -> None:
         )
 
 
+def require_env(field_name: str, var: str) -> str:
+    """Read ``var`` from the environment, or raise :class:`ConfigError`.
+
+    The factories read tokens at construction time, long after ``load_config``'s
+    ``check_env`` pass — a config loaded with ``check_env=False``, or an env var
+    unset between the two, reached ``os.environ[...]`` and produced a bare
+    ``KeyError`` traceback. This keeps that failure in the same shape (and the
+    same wording) as every other config problem the CLI knows how to render.
+    """
+    value = os.environ.get(var)
+    if not value:
+        raise ConfigError(
+            f"required environment variable not set: {field_name} -> ${var}.",
+            hint=f"add it to your .env, e.g. `{var}=...`",
+        )
+    return value
+
+
 def _check_env_vars(config: Config) -> None:
     """Every referenced ``*_env`` variable must be present in the environment."""
     required: list[tuple[str, str]] = [

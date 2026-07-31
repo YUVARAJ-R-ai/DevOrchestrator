@@ -141,6 +141,19 @@ mesh:                            # shared team memory
 | `decision` | Log an architectural decision into shared memory, visible team-wide |
 | `status` | Resolved config for this workspace |
 
+<details>
+<summary><b>🖥 Optional: the Streamlit control panel</b></summary>
+
+A browser-based view of the same loop, for when a terminal isn't the right surface — demos, or watching team activity on a second screen.
+
+```bash
+uv run --extra ui streamlit run frontend/app.py
+```
+
+Shipped as an optional `ui` extra, so it adds nothing to a normal `uv sync` and the CLI never depends on it.
+
+</details>
+
 ---
 
 ## 🧠 How It Works

@@ -1,205 +1,366 @@
-# DevOrchestrator
+<div align="center">
 
-> **The AI-native SDLC operating layer.** A developer picks a task and reviews the result. The machine does everything in between — research, implementation, quality gates, PR, review routing, deploy, and organizational memory.
->
-> DevOrchestrator is the **first buildable slice** of a larger idea: the **AI-Native Enterprise**, where every human role has a policy-aware AI companion, and coordination happens through shared structured memory instead of tribal knowledge.
+# 🎼 DevOrchestrator
 
----
+### The AI-native SDLC operating layer
 
-## The Vision — AI-Native Enterprise
+**A developer picks a task and reviews the result.<br/>The machine does everything in between.**
 
-Instead of treating AI as just another tool, we treat **every employee as having a mandatory AI companion**. Every human role has a corresponding AI agent that understands its owner's work, context, responsibilities, and company policy.
+<br/>
 
-The AI does not replace the human. The human and AI operate as a **team**:
+[![Python](https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Tests](https://img.shields.io/badge/tests-278_passing-2ea44f?style=flat-square)](#testing)
+[![Ruff](https://img.shields.io/badge/lint-ruff_clean-261230?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/)
+[![Agent](https://img.shields.io/badge/agent-Claude_Code-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+[![Mesh](https://img.shields.io/badge/mesh-Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#license)
 
-- **AI handles** implementation, boilerplate, routine coordination, documentation, information gathering, progress tracking, and context preservation.
-- **Humans handle** architecture, system design, product decisions, review, approvals, hard edge cases, and creative problem solving.
+<br/>
 
-### Why
+[**Quickstart**](#-quickstart) · [**The Loop**](#-the-loop) · [**How It Works**](#-how-it-works) · [**Architecture**](#-architecture) · [**Vision**](#-the-bigger-idea) · [**Docs**](#-documentation)
 
-Today's organizations lose enormous value to friction that isn't the actual work:
-
-- Tribal knowledge lives only in people's heads.
-- Human-to-human communication loses context over time and across ambiguous text.
-- A large fraction of engineering time is operational coordination, not problem solving.
-- Every departure or team switch is a knowledge-loss event.
-
-The goal is to make AI the **primary operational layer** while humans stay responsible for strategic decisions — reducing communication overhead and turning ephemeral conversations into durable organizational memory.
-
-### Core principles
-
-| Principle | What it means |
-|---|---|
-| **Every role has a companion** | Manager ↔ Manager AI, Frontend ↔ Frontend AI, Backend ↔ Backend AI, QA ↔ QA AI, DevOps ↔ DevOps AI. |
-| **Bring Your Own Agent** | The company provides governance and a protocol, **not** the assistant. Claude Code, Copilot, Cursor, OpenCode, Windsurf, or any future agent can connect. |
-| **Coordinate through shared memory, not chatter** | Agents synchronize via a structured, queryable **mesh** and shared **artifacts** — not by two non-deterministic models improvising at each other. (See [design stance](#design-stance-what-we-deliberately-do-not-do).) |
-| **Escalate, don't interrupt** | `AI → AI` first. Only unresolved issues become `AI → Human`, and only genuinely cross-cutting ones become `Human ↔ Human`. Outcomes are recorded back so context is never lost. |
-| **Governance is first-class** | Every agent gets least-privilege, read-only access to the source of truth. A central policy engine enforces scope; out-of-scope access must be requested, approved, logged, and audited. |
-| **Loosely coupled** | The enterprise owns the protocol, interfaces, security policy, and organizational memory — not one monolithic AI system. Any compliant agent participates. |
-
-### Escalation model
-
-```
-AI ──▶ AI          routine issues resolved automatically, resolution logged
-  │
-  ▼ (unresolved)
-AI ──▶ Human        escalated WITH full context, not fragmented chat messages
-  │
-  ▼ (needs several people)
-Human ◀─▶ Human     humans make the strategic call
-  │
-  ▼
-Human ──▶ AI        decision recorded back into org memory for future reuse
-```
-
-The full vision — including the Manager-AI pattern, persistent organizational memory, and the governance model — lives in **[docs/vision.md](docs/vision.md)**, along with the open questions we have deliberately *not* hand-waved.
+</div>
 
 ---
 
-## Where DevOrchestrator fits
+## ⚡ What is this?
 
-The vision is a multi-year direction. You cannot ship "an AI companion for every role" on day one — so DevOrchestrator starts with the **engineering SDLC loop**, the domain where the payoff is fastest and most measurable.
+Most of an engineer's day isn't engineering. It's branch naming, PR descriptions, status columns, "who else is touching this file", and re-explaining context that evaporated three standups ago.
 
-DevOrchestrator is the vision, scoped to one role (the developer) and one workflow (task → deployed code):
+DevOrchestrator collapses that into **three commands**. Two Claude Code sessions do the real work in tmux panes you can watch and interrupt — one **researches** the codebase and writes a plan, the other **implements** it. Quality gates run, failures get auto-repaired, a PR opens with an AI-written description, and every decision lands in a shared **mesh** your whole team can query.
 
-| Vision concept | DevOrchestrator mechanism | Status |
-|---|---|---|
-| Every role has an AI companion | Per-developer Claude Code **research + implementation** sessions | ✅ MVP (Sprint 1) |
-| Coordinate through shared memory | **Artifact** (the shared spec) + **Context Mesh** (SQLite: who touches what, decisions made) | ✅ MVP (Sprint 3) |
-| Escalation model | Quality gates → **TL approval gate**; `--autofix` resolves routine failures before a human sees them | ✅ MVP (Sprint 2) |
-| Persistent organizational memory | Mesh events + logged architectural decisions | ✅ MVP (Sprint 3) |
-| Bring Your Own Agent | Agent adapter layer (`claude`, then `agy`, then others) | 🟡 MVP-partial (Sprint 4) |
-| Per-pod package manager (skills, plugins & shareable workflows) | Manual vendoring today → `devorchestrator skills`/`workflow` versioned, shareable, policy-gated distribution | 🔭 Horizon (post-MVP) |
-| Governance / policy engine | Least-privilege access, audit log, policy checks | 🔭 Horizon (post-MVP) |
-| Agent-connection **protocol** (the moat) | A documented contract any compliant agent implements to plug in | 🔭 Horizon (post-MVP) |
-
-The last two rows are the parts of the vision with the deepest moat — and they are intentionally **not** in the 4-sprint MVP. They become real work only after the wedge is proven. See the [roadmap](#roadmap-horizons).
+> [!NOTE]
+> It runs on a **Claude Code Pro subscription — no API key required**. The `claude` CLI is invoked as a subprocess in a visible tmux pane.
 
 ---
 
-## How the loop actually runs
+## 🔄 The Loop
 
-```
-dev runs: devorchestrator start
+```mermaid
+flowchart LR
+    subgraph human1 [" "]
+        A["👤 pick task"]
+    end
+    subgraph machine ["🤖 devorchestrator start"]
+        B["branch"] --> C["🔍 research<br/><i>reads codebase</i>"] --> D["📄 artifact.md"] --> E["⚙️ implement<br/><i>writes code</i>"]
+    end
+    subgraph human2 [" "]
+        F["👤 review code"]
+    end
+    subgraph machine2 ["🤖 devorchestrator pr"]
+        G["✅ ruff + pytest"] --> H{"pass?"}
+        H -->|no| I["🔧 autofix<br/><i>re-invokes agent</i>"] --> G
+        H -->|yes| J["🚀 PR + AI description"]
+    end
+    subgraph human3 [" "]
+        K["👤 TL approves"]
+    end
 
-[1]  Config loads         devOrchestrator.yaml → board, git, agent, role
-[2]  Task fetch           Plane / Azure Boards REST API → tasks in terminal
-[3]  Dev selects task     ← HUMAN
-[4]  Branch created       git server API → feature/task-slug
-[5]  Research session     tmux pane: claude -p reads codebase → writes artifact.md
-[6]  Artifact preview     rendered in terminal   ← OPTIONAL HUMAN GATE (edit before impl)
-[7]  Impl session         tmux pane: claude -p implements the artifact, dev watches live
-[8]  Dev reviews          ← HUMAN
-[9]  dev runs: devorchestrator pr
-[10] Auto-checks          ruff + gitleaks + pytest;  FAIL → --autofix re-invokes agent
-[11] PR created           AI-written description → PR opened, linked to task
-[12] TL notified          Mattermost
-[13] TL runs: devorchestrator review   → diff | tests | CI | artifact → [a]pprove / [r]eject
-[14] CI/CD fires          Woodpecker CI / Azure Pipelines
-[15] Deploy               Coolify webhook → health check until green
-[16] Task closed          board API → Done → team notified
+    A --> B
+    E --> F --> G
+    J --> K
+
+    style A fill:#f59e0b,stroke:#b45309,color:#fff
+    style F fill:#f59e0b,stroke:#b45309,color:#fff
+    style K fill:#f59e0b,stroke:#b45309,color:#fff
+    style C fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    style E fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style D fill:#10b981,stroke:#047857,color:#fff
+    style I fill:#ef4444,stroke:#b91c1c,color:#fff
+    style J fill:#10b981,stroke:#047857,color:#fff
 ```
 
-**Human moments: [3] pick task, [6] optionally edit artifact, [8] review implementation.** Everything else is the machine.
-
-### The coordination substrate: artifact + mesh
-
-Two ideas do the load-bearing work, and they are why DevOrchestrator's coordination is trustworthy where "agents chatting" is not:
-
-- **The Artifact** — a structured Markdown spec (context, sub-tasks, files to touch, acceptance criteria) produced by a research session that actually reads the codebase, then handed to the implementation session. It is the shared contract between "what we decided" and "what got built."
-- **The Mesh** — a small SQLite event store (WAL mode) that records who is touching which module and what architectural decisions were made. It is the concrete, queryable form of "persistent organizational memory," and the basis for conflict detection between developers.
+**Three human moments** — pick the task, review the implementation, approve the PR. Everything between them is the machine, and you can watch all of it happen live.
 
 ---
 
-## Design stance — what we deliberately do *not* do
+## 🚀 Quickstart
 
-The vision is ambitious; the build stays honest. These non-goals keep the MVP shippable and the coordination reliable:
-
-- **No unsupervised agent-to-agent negotiation of contracts.** Two non-deterministic agents "negotiating an API" unsupervised is two hallucination surfaces talking. We coordinate through the **shared artifact + mesh** and a **human gate**, not improvised chat.
-- **Organizational memory needs provenance, not just capture.** A logged resolution is only useful if it carries who/when and can be superseded — stale decisions cited with confidence are worse than no memory. Memory entries are treated as facts-at-a-time, not eternal truth.
-- **No monolith.** DevOrchestrator triggers CI/CD and project tooling; it does not reimplement them. Plane owns project management, Woodpecker owns pipelines, the orchestrator owns the *loop*.
-- **CLI, not an IDE plugin.** The terminal (with a live tmux pane the dev can watch and interrupt) is the right surface.
-
-Full critique and open questions: **[docs/vision.md](docs/vision.md#open-questions)**.
-
----
-
-## Roadmap horizons
-
-| Horizon | Scope | Where it's tracked |
-|---|---|---|
-| **H0 — Inner loop** | Task → research → artifact → implement, for one dev | [Sprint 1](docs/sprint-1.md) |
-| **H0 — Pipeline** | Quality gates → autofix → PR → TL approval | [Sprint 2](docs/sprint-2.md) |
-| **H1 — Team** | Deploy + notify + shared context mesh + one-command infra | [Sprint 3](docs/sprint-3.md) |
-| **H1 — Scale** | Rate-limit rotation, BYO-agent (`agy`), Azure DevOps track | [Sprint 4](docs/sprint-4.md) |
-| **H2 — Multi-role companions** | Companions beyond the developer: Manager AI, QA AI, DevOps AI | [product-backlog.md](docs/product-backlog.md) · [vision.md](docs/vision.md) |
-| **H3 — Enterprise platform** | **Governance/policy engine** + **agent-connection protocol** (the moat) + **per-pod package manager for skills/plugins/shareable workflows** | [product-backlog.md](docs/product-backlog.md) · [vision.md](docs/vision.md) |
-
-H0–H1 are the current 4-sprint MVP. H2–H3 are the vision made concrete as future epics — real, but explicitly not MVP.
-
----
-
-## Quickstart
-
-DevOrchestrator runs on a **Claude Code Pro subscription — no API key required**. It invokes the `claude` CLI as a subprocess in a visible tmux pane.
-
-**Team lead, once:**
 ```bash
-docker compose up -d          # Plane + Gitea + Woodpecker CI + Coolify + Mattermost
-# commit devOrchestrator.yaml.template with shared URLs pre-filled
+# 1 · install
+uv sync                          # or: pip install -e .
+
+# 2 · set up once — scaffolds config + .env, tests every connection for real
+devorchestrator init
+
+# 3 · every task
+devorchestrator start            # pick → research → implement (watch the panes)
+devorchestrator pr               # gates → autofix → PR
+devorchestrator review           # (TL) approve or reject
 ```
 
-**Each dev, once:**
-```bash
-uvx install devorchestrator                     # or: pip install devorchestrator
-devorchestrator init                            # scaffolds devOrchestrator.yaml + .env
-                                                 # interactively if missing, tests the
-                                                 # GitHub connection for real, registers
-                                                 # in the mesh
-```
+<details>
+<summary><b>Minimal <code>devOrchestrator.yaml</code></b></summary>
 
-**Every task:**
-```bash
-devorchestrator start         # pick a task, watch the loop run
-devorchestrator pr            # checks → PR
-devorchestrator review        # (TL) approve / reject
-```
-
-Minimal config:
 ```yaml
-name: yuvaraj
-role: dev                     # or: tl
-agent: claude                 # BYO agent — claude today, agy/others next
+name: your-name
+role: dev                        # dev | tl
+agent: claude                    # BYO agent — claude today, others next
 
-board:  { type: plane,  url: https://plane.team.internal,  token_env: PLANE_API_KEY }
-git:    { type: gitea,  url: https://gitea.team.internal,  token_env: GITEA_TOKEN }
-brain:  { provider: openrouter, model: deepseek/deepseek-v4-flash, token_env: OPENROUTER_API_KEY }
-notify: { type: mattermost, webhook_env: MATTERMOST_WEBHOOK }
+board:
+  type: github
+  url: https://github.com/you/your-repo
+  token_env: GITHUB_TOKEN
+  project_number: 10             # GitHub Project (v2) number
+
+git:
+  type: github
+  url: https://github.com/you/your-repo
+  token_env: GITHUB_TOKEN
+  reviewer: teammate-login       # who `review` routes PRs to
+
+brain:                           # optional — writes PR descriptions
+  provider: siliconflow
+  model: deepseek-ai/DeepSeek-V4-Flash
+  token_env: SILICONFLOW_API_KEY
+
+mesh:                            # shared team memory
+  supabase_url: https://<project>.supabase.co
+  supabase_key_env: SUPABASE_SERVICE_KEY
 ```
+
+> [!WARNING]
+> `GITHUB_TOKEN` needs **both** `repo` and `project` scopes — the second is for Projects v2 GraphQL. `init` checks this and tells you if it's missing.
+>
+> Model ids are **provider-specific**. SiliconFlow serves `deepseek-ai/DeepSeek-V4-Flash`; OpenRouter spells the same model `deepseek/deepseek-v4-flash`. Crossing them fails *silently* into a mechanical fallback — change `provider` and `model` together.
+
+</details>
 
 ---
 
-## Documentation
+## 🎛 Commands
+
+| Command | What it does |
+|:--|:--|
+| `init` | Scaffolds `devOrchestrator.yaml` + `.env`, then makes **real** API calls to verify the token can see your repo and board |
+| `start` | Pick a task → branch → research session → artifact → implementation session |
+| `pr` | Runs `ruff` + `pytest`, auto-repairs failures by re-invoking the agent, opens a PR with an AI-written body |
+| `review` | **(TL)** Diff, tests, CI status and artifact side by side → approve or reject |
+| `sessions` | List, attach to, or reap orchestrator tmux sessions |
+| `mesh` | Team activity dashboard — add `--watch` for live, `--check <module>` for overlap warnings |
+| `decision` | Log an architectural decision into shared memory, visible team-wide |
+| `status` | Resolved config for this workspace |
+
+<details>
+<summary><b>🖥 Optional: the Streamlit control panel</b></summary>
+
+A browser-based view of the same loop, for when a terminal isn't the right surface — demos, or watching team activity on a second screen.
+
+```bash
+uv run --extra ui streamlit run frontend/app.py
+```
+
+Shipped as an optional `ui` extra, so it adds nothing to a normal `uv sync` and the CLI never depends on it.
+
+</details>
+
+---
+
+## 🧠 How It Works
+
+Two ideas carry the weight, and they're why this is trustworthy where "agents chatting to each other" is not.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 📄 The Artifact
+
+A structured Markdown spec — context, sub-tasks, files to touch, acceptance criteria — written by a research session that **actually opened the files**.
+
+A chat model handed a task description produces a plausible-looking plan. A Claude Code session with file and search tools produces one grounded in the real codebase.
+
+It's the contract between *what we decided* and *what got built*, and you can edit it before implementation starts.
+
+</td>
+<td width="50%" valign="top">
+
+### 🕸 The Mesh
+
+A Supabase/Postgres event store recording **who is touching what**, live session state, and architectural decisions.
+
+Three tables — `events`, `sessions`, `devs` — scoped per project. It powers conflict warnings ("someone else is in this module"), the live dashboard, and durable team memory.
+
+It's also exposed over **MCP**, so any Claude Code instance can query it as tools.
+
+</td>
+</tr>
+</table>
+
+### Escalation, not interruption
+
+```
+   AI ──▶ AI          routine check failures repaired automatically (autofix)
+     │
+     ▼ unresolved
+   AI ──▶ Human       escalated with full context — diff, tests, artifact
+     │
+     ▼ cross-cutting
+ Human ◀─▶ Human      humans make the strategic call
+     │
+     ▼
+ Human ──▶ AI         decision logged back into the mesh for reuse
+```
+
+### 🔌 MCP server
+
+The mesh is exposed as tools to any MCP-capable agent — so a teammate's Claude Code can ask what the team is doing without running the CLI at all.
+
+```bash
+python -m devorchestrator.mcp        # stdio · http · streamable-http · sse
+```
+
+| Tool | Purpose |
+|:--|:--|
+| `who_is_touching` | Who else is working in a module right now |
+| `active_sessions` | Live research/impl sessions across the team |
+| `recent_decisions` | Recent architectural decisions with provenance |
+| `log_decision` | Record a decision into shared memory |
+| `log_session_event` | Emit a session lifecycle event |
+
+See **[docs/MCP.md](docs/MCP.md)**.
+
+---
+
+## 🏗 Architecture
+
+Built as four **conflict-free lanes** with disjoint file ownership, talking only through `contracts.py` — frozen Protocols and frozen dataclasses, no lane importing another's internals.
+
+```
+src/devorchestrator/
+│
+├── contracts.py         🔒 the frozen coordination surface — every lane depends on this
+├── config.py               Pydantic v2 schema, fails loud with actionable hints
+│
+├── pipeline.py          🅰 Spine — start() → prepare_pr(), the loop itself
+├── review.py            🅰 TL approval gate
+├── cli.py               🅰 Typer + Rich command surface
+│
+├── integrations/        🅱 GitHub board + git adapters, task selector
+│
+├── sessions/            🅲 AI sessions
+│   ├── tmux_runner.py      spawns agents in split panes, rate-limit retries
+│   ├── research.py         codebase → artifact.md
+│   ├── impl.py             artifact.md → code
+│   ├── artifact.py         parse + render the artifact
+│   ├── manage.py           list / attach / reap tmux sessions
+│   └── brain.py            cheap open model for text-only work
+│
+├── mesh/                🅳 shared memory
+│   ├── store.py            Supabase event store
+│   ├── conflict.py         overlap detection between devs
+│   └── dashboard.py        live Rich team view
+│
+├── checks/              🅳 ruff + pytest quality gates
+├── notify.py            🅳 Mattermost / Teams webhooks
+└── mcp/                    mesh as MCP tools
+```
+
+**Everything optional degrades instead of breaking.** No mesh configured? The loop runs. Mesh unreachable? Events are dropped and counted, the session continues. No brain key? PR descriptions fall back to a deterministic template that *says so* rather than passing off invented prose. tmux missing? Sessions run headless with tee'd logs.
+
+<details>
+<summary><b>Lane ownership</b> — how four people built this in parallel without merge hell</summary>
+
+| Lane | Owner | Owns |
+|:--|:--|:--|
+| **A — Spine** | harsha | `cli.py`, `contracts.py`, `config.py`, `pipeline.py`, `review.py` |
+| **B — Integrations** | yuvaraj | `integrations/*`, demo tooling |
+| **C — AI sessions** | ragav | `sessions/*`, `prompts/` |
+| **D — Mesh + Gates** | tharun | `checks/*`, `mesh/*`, `pr_description.py`, `notify.py` |
+
+One file, one owner. `contracts.py` is written once and frozen. Full rules in **[docs/TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md)**.
+
+</details>
+
+---
+
+## 🌍 The Bigger Idea
+
+DevOrchestrator is the **first buildable slice** of the *AI-Native Enterprise* — where every human role has a policy-aware AI companion, and coordination happens through shared structured memory instead of tribal knowledge.
+
+The AI doesn't replace the human. They operate as a team:
+
+| | |
+|:--|:--|
+| **🤖 AI handles** | implementation, boilerplate, routine coordination, documentation, progress tracking, context preservation |
+| **👤 Humans handle** | architecture, product decisions, review, approvals, hard edge cases, creative problem solving |
+
+You can't ship "a companion for every role" on day one — so this starts with the engineering SDLC loop, where the payoff is fastest and most measurable.
+
+| Vision concept | Mechanism here | Status |
+|:--|:--|:--|
+| Every role has a companion | Per-dev research + implementation sessions | ✅ Built |
+| Coordinate through shared memory | Artifact + Context Mesh | ✅ Built |
+| Escalation model | Quality gates → autofix → TL gate | ✅ Built |
+| Persistent org memory | Mesh events + logged decisions | ✅ Built |
+| Bring Your Own Agent | Agent adapter layer | 🟡 Partial |
+| Governance / policy engine | Least-privilege, audit log | 🔭 Horizon |
+| Agent-connection protocol | The moat — any compliant agent plugs in | 🔭 Horizon |
+
+Full vision, including what we deliberately haven't hand-waved: **[docs/vision.md](docs/vision.md)**.
+
+### What we deliberately *don't* do
+
+- **No unsupervised agent-to-agent contract negotiation.** Two non-deterministic agents "negotiating an API" is two hallucination surfaces talking. Coordination goes through the artifact, the mesh, and a human gate.
+- **Memory needs provenance, not just capture.** Entries are facts-at-a-time that can be superseded — a stale decision cited confidently is worse than no memory at all.
+- **No monolith.** We trigger CI/CD and project tooling; we don't reimplement them. The orchestrator owns *the loop*, nothing else.
+- **CLI, not an IDE plugin.** A live tmux pane you can watch and interrupt is the right surface.
+
+---
+
+## 🧪 Testing
+
+```bash
+uv sync                          # must not be skipped — see below
+ruff check src/ tests/
+pytest tests/ -q                 # 278 passing
+```
+
+> [!IMPORTANT]
+> **A skipped test is not a passing test.** The real-tmux integration tests skip silently when `libtmux` is missing — and a genuine bug (the implementation pane overwriting the research pane) once survived a fully green suite that way.
+>
+> `tests/test_packaging.py` now fails loudly if `uv.lock` drifts from `pyproject.toml`, and the tmux skip message distinguishes *"no tmux binary"* (fine) from *"tmux present, libtmux missing"* (broken environment).
+
+---
+
+## 📚 Documentation
 
 | Doc | What's in it |
-|---|---|
-| **[docs/DEMO.md](docs/DEMO.md)** | **Start here to run it.** Setup, the three commands, what to narrate, and what to do when something breaks |
-| [docs/GAPS.md](docs/GAPS.md) | Honest inventory of what's finished vs. what's still open |
-| **[docs/vision.md](docs/vision.md)** | The complete AI-Native Enterprise vision, the design stance, and open questions |
-| **[docs/TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md)** | 18h hackathon: 4 conflict-free lanes, wave timeline, git flow, vendored skills |
-| **[docs/spine.md](docs/spine.md)** | Lane A full reference: every `contracts.py` type/Protocol, `pipeline.py`/`review.py` walkthroughs, adapter skeletons to copy-paste, testing patterns, troubleshooting |
-| [docs/research.md](docs/research.md) | Problem, pipeline detail, competitive landscape, tech decisions, risks |
-| [docs/product-backlog.md](docs/product-backlog.md) | Ordered backlog: MVP epics + H2/H3 vision epics |
-| [docs/sprints.md](docs/sprints.md) | 4-sprint MVP overview and vision horizons |
-| [docs/sprint-1.md](docs/sprint-1.md) … [sprint-4.md](docs/sprint-4.md) | Per-sprint backlog, DoD, and vision alignment |
-| [docs/board.md](docs/board.md) | Live task board |
+|:--|:--|
+| **[DEMO.md](docs/DEMO.md)** | **Start here to run it** — setup, the three commands, what to do when something breaks |
+| [GAPS.md](docs/GAPS.md) | Honest inventory of what's finished vs. still open |
+| [vision.md](docs/vision.md) | The full AI-Native Enterprise vision and open questions |
+| [TEAM-WORKFLOW.md](docs/TEAM-WORKFLOW.md) | Four conflict-free lanes, wave timeline, git flow |
+| [spine.md](docs/spine.md) | Every `contracts.py` type, pipeline walkthrough, adapter skeletons |
+| [MCP.md](docs/MCP.md) | Mesh MCP server — tools, transports, wiring it to Claude Code |
+| [DECISIONS.md](docs/DECISIONS.md) | Architectural decisions with rationale |
+| [research.md](docs/research.md) | Problem, competitive landscape, tech decisions, risks |
+| [product-backlog.md](docs/product-backlog.md) | Ordered backlog: MVP epics + vision epics |
 
 ---
 
-## Status
+## 🛠 Tech Stack
 
-Planning complete; MVP (H0–H1) is a 4-sprint, ~37-point build. The [product backlog](docs/product-backlog.md) now also carries the H2–H3 vision epics so the north-star is never lost — while the MVP stays deliberately small.
+<div align="center">
 
-## Tech stack
+`Python 3.12+` · `Pydantic v2` · `Typer` · `Rich` · `libtmux` · `httpx` · `Supabase/Postgres` · `FastMCP` · `ruff` · `uv`
 
-Python 3.12 · Pydantic v2 · `claude` CLI (Pro, no API key) · libtmux · Rich · httpx · SQLite (WAL) · gitleaks · uv. Full rationale in [docs/research.md](docs/research.md#tech-recommendations).
+**Agent:** `claude` CLI (Pro subscription, no API key) · **Brain:** SiliconFlow / DeepSeek
+
+</div>
+
+---
+
+<div align="center">
+
+### License
+
+MIT — declared in `pyproject.toml`.<br/>
+<sub>⚠️ No `LICENSE` file in the repo yet; worth adding one before this goes public.</sub>
+
+<br/>
+
+*Built for FRONTIER 2026.*<br/>
+<sub>Three commands. Two AI sessions. One shared memory.</sub>
+
+</div>

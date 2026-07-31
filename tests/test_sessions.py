@@ -252,10 +252,37 @@ def test_tmux_session_name_is_sanitized(branch, expected, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Real tmux — the demo path. Skipped where tmux or the [agent] extra is absent.
+# Real tmux — the demo path. Skipped only where tmux itself is absent.
 # ---------------------------------------------------------------------------
 
-needs_tmux = pytest.mark.skipif(not tmux_available(), reason="tmux / libtmux not installed")
+
+def _tmux_skip_reason() -> str | None:
+    """Why the real-tmux tests cannot run here, or None if they can.
+
+    Deliberately separates the two causes, because only one of them is normal.
+    No ``tmux`` binary is a fine reason to skip — plenty of CI images lack it.
+    A ``tmux`` binary *with no libtmux* is an environment bug: libtmux is a core
+    dependency, so its absence means ``uv sync`` was never run or ran against a
+    stale lock (see ``test_packaging.py``).
+
+    The old single ``tmux / libtmux not installed`` reason blurred the two, so
+    the second case looked routine. It was not: these tests silently skipped on
+    a machine that had tmux, and a real bug — impl overwriting the research pane
+    — survived a green suite because of it.
+    """
+    import shutil
+
+    if not shutil.which("tmux"):
+        return "no tmux binary (expected on CI images without tmux)"
+    if not tmux_available():
+        return (
+            "tmux is installed but libtmux is NOT — libtmux is a core dependency, "
+            "so this environment is broken, not merely tmux-less. Run `uv sync`."
+        )
+    return None
+
+
+needs_tmux = pytest.mark.skipif(_tmux_skip_reason() is not None, reason=_tmux_skip_reason() or "")
 
 
 @needs_tmux

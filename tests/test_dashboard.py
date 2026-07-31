@@ -58,3 +58,52 @@ def test_render_dashboard_empty_mesh() -> None:
     render_dashboard(EmptyMesh(), console=console)
     output = buf.getvalue()
     assert "tharun" not in output
+
+
+def test_dashboard_shows_active_sessions() -> None:
+    """#59: the dashboard surfaces live sessions from active_sessions()."""
+    from dataclasses import dataclass
+
+    from devorchestrator.mesh.dashboard import build_dashboard
+
+    @dataclass
+    class _Session:
+        dev: str
+        branch: str
+        kind: str
+        state: str
+        last_seen: str
+
+    class MeshWithSessions:
+        def who_is_touching(self, module):
+            return []
+        def list_modules(self):
+            return []
+        def recent_decisions(self, limit=10):
+            return []
+        def active_sessions(self):
+            return [_Session("yuvaraj", "feature/x", "research", "running", "2026-07-31T09:00:00")]
+
+    buf = StringIO()
+    Console(file=buf, width=140).print(build_dashboard(MeshWithSessions()))
+    out = buf.getvalue()
+    assert "yuvaraj" in out
+    assert "research" in out
+    assert "running" in out
+
+
+def test_dashboard_handles_mesh_without_active_sessions() -> None:
+    """A mesh lacking active_sessions() (older/fake) must not crash the dashboard."""
+    from devorchestrator.mesh.dashboard import build_dashboard
+
+    class NoSessions:
+        def who_is_touching(self, module):
+            return []
+        def list_modules(self):
+            return []
+        def recent_decisions(self, limit=10):
+            return []
+
+    buf = StringIO()
+    Console(file=buf, width=140).print(build_dashboard(NoSessions()))
+    assert "no active sessions" in buf.getvalue()

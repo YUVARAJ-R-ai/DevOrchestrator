@@ -334,3 +334,29 @@ def test_build_review_missing_token_raises_config_error(monkeypatch: pytest.Monk
 
     with pytest.raises(ConfigError, match="GIT_TOKEN"):
         build_review(config)
+
+
+def test_git_failure_raises_pipeline_error_with_stderr(tmp_path, branch, issue, monkeypatch):
+    """Git's own explanation must survive — CalledProcessError drops it."""
+    pipe, _, _ = _pipeline(tmp_path, branch, issue)
+    pipe.local_git = True
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 1, stdout="", stderr="! [remote rejected] protected branch")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+
+    with pytest.raises(PipelineError, match="protected branch"):
+        pipe.start(select=lambda issues: issues[0])
+
+
+def test_git_helper_returns_result_on_success(tmp_path, branch, issue, monkeypatch):
+    pipe, _, _ = _pipeline(tmp_path, branch, issue)
+
+    def _fake_run(cmd, *a, **kw):
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("devorchestrator.pipeline.subprocess.run", _fake_run)
+    assert pipe._git(["status"], "boom").stdout == "ok"

@@ -222,13 +222,11 @@ class Pipeline:
         sessions would edit files on whatever branch happened to be checked out
         before start() ran, not the new one.
         """
-        subprocess.run(["git", "fetch", "origin", branch.name], check=True)
-        result = subprocess.run(
-            ["git", "checkout", "-B", branch.name, f"origin/{branch.name}"],
-            capture_output=True, text=True,
+        self._git(["fetch", "origin", branch.name], f"could not fetch {branch.name}")
+        self._git(
+            ["checkout", "-B", branch.name, f"origin/{branch.name}"],
+            f"could not check out {branch.name} locally",
         )
-        if result.returncode != 0:
-            raise PipelineError(f"could not check out {branch.name} locally: {result.stderr}")
 
     def _commit_and_push(self, branch: BranchRef, issue: Issue) -> None:
         """Commit whatever the impl session changed and push it to ``branch``.
@@ -237,19 +235,34 @@ class Pipeline:
         would open a PR with zero commits (identical to base), since
         create_branch only creates an empty ref.
         """
-        status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
-        )
+        status = self._git(["status", "--porcelain"], "could not read git status")
         if not status.stdout.strip():
             self._event("nothing to commit — implementation session made no changes")
             return
 
-        subprocess.run(["git", "add", "-A"], check=True)
-        subprocess.run(
-            ["git", "commit", "-m", f"issue #{issue.id}: {issue.title}"], check=True
+        self._git(["add", "-A"], "could not stage the implementation's changes")
+        self._git(
+            ["commit", "-m", f"issue #{issue.id}: {issue.title}"],
+            "could not commit the implementation's changes",
         )
-        subprocess.run(["git", "push", "-u", "origin", branch.name], check=True)
+        self._git(["push", "-u", "origin", branch.name], f"could not push {branch.name}")
         self._event(f"committed and pushed to {branch.name}")
+
+    @staticmethod
+    def _git(args: list[str], what_failed: str) -> subprocess.CompletedProcess[str]:
+        """Run a git command, raising :class:`PipelineError` with git's own stderr.
+
+        ``check=True`` would raise CalledProcessError, whose message is only the
+        exit status — git's explanation (rejected push, protected branch,
+        detached HEAD) goes to stderr and is discarded. PipelineError is what the
+        CLI already catches and renders, so failures read as one line instead of
+        a traceback.
+        """
+        result = subprocess.run(["git", *args], capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise PipelineError(f"{what_failed}: {detail}" if detail else what_failed)
+        return result
 
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"

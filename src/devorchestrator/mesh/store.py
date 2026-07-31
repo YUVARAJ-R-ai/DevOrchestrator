@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -19,13 +20,43 @@ def create_supabase_client(url: str, key: str) -> SupabaseClient:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SessionActivity:
+    """Who is running (or has run) which agent session, read from the mesh.
+
+    Lives here rather than ``contracts.py`` because that file is frozen (see
+    docs/spine.md §2) — only the Spine owner adds new shared types.
+    """
+
+    dev: str
+    branch: str
+    kind: str
+    state: str
+    last_seen: str
+    started_at: str
+    finished_at: str | None = None
+
+
+def _ts_seconds(value: str | None) -> float | None:
+    """Best-effort ISO-8601 timestamp → epoch seconds. None if unparseable."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 class SupabaseMesh(Mesh):
     """Mesh implementation backed by Supabase/Postgres.
 
-    Expects two tables:
+    Expects three tables:
         events(id UUID PK, dev text, module text, event_type text,
                payload jsonb, ts timestamptz)
         devs(name text PK, role text, last_seen timestamptz)
+        sessions(dev text, branch text, kind text, state text,
+                 last_seen timestamptz, started_at timestamptz,
+                 finished_at timestamptz, payload jsonb, PK (dev, branch, kind))
 
     **The mesh is observability, not a critical path** — like the brain, it must
     never break the loop. A bad key, a missing table, a network blip: every
@@ -122,5 +153,60 @@ class SupabaseMesh(Mesh):
             for row in (result.data or [])
         ]
 
+    def active_sessions(self, within_seconds: int = 60) -> list[SessionActivity]:
+        """Sessions still live right now — ``state == 'running'`` and ``last_seen``
+        fresh enough that the session is likely still alive. Newest first."""
+        try:
+            result = (
+                self._client.table("sessions")
+                .select("*")
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        cutoff = datetime.now(UTC).timestamp() - within_seconds
+        active: list[SessionActivity] = []
+        for row in (result.data or []):
+            if row.get("state") != "running":
+                continue
+            last_seen = _ts_seconds(row.get("last_seen"))
+            if last_seen is None or last_seen < cutoff:
+                continue
+            active.append(_row_to_session(row))
+        return active
 
-__all__ = ["SupabaseMesh"]
+    def session_history(self, limit: int = 10) -> list[SessionActivity]:
+        """Recent finished sessions (anything not running/pending), newest first."""
+        try:
+            result = (
+                self._client.table("sessions")
+                .select("*")
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        finished = [
+            _row_to_session(row)
+            for row in (result.data or [])
+            if row.get("state") not in ("running", "pending")
+        ]
+        return finished[:limit]
+
+
+def _row_to_session(row: dict) -> SessionActivity:
+    return SessionActivity(
+        dev=row.get("dev", "unknown"),
+        branch=row.get("branch", ""),
+        kind=row.get("kind", ""),
+        state=row.get("state", ""),
+        last_seen=row.get("last_seen", ""),
+        started_at=row.get("started_at", ""),
+        finished_at=row.get("finished_at"),
+    )
+
+
+__all__ = ["SupabaseMesh", "SessionActivity"]

@@ -22,10 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Both are core deps now: the live tmux panes are the signature demo UX and
-# the brain (SiliconFlow/DeepSeek) is wired into `devorchestrator pr`. Kept
-# here so the extra names still resolve for anyone who referenced them.
+# Pulled in by later lanes (tmux sessions). Declared here so the spine
+# documents the intended surface; not required to run the CLI skeleton.
 agent = ["libtmux>=0.35"]
+# openai moved to core deps: the brain (SiliconFlow/DeepSeek PR descriptions)
+# is now wired into `devorchestrator pr`, so it ships by default.
 brain = ["openai>=1.30"]
 
 [project.scripts]

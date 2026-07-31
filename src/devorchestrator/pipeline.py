@@ -22,7 +22,6 @@ it). Rich rendering lives in the CLI and in ``review.py``, not here.
 
 from __future__ import annotations
 
-import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -126,7 +125,6 @@ class Pipeline:
         branch = self.git.create_branch(issue, base="dev")
         if self.local_git:
             self._checkout_local(branch)
-        self._move_issue(issue.id, IssueState.in_progress)
         self._emit("task_started", module=_primary_module(branch), payload={
             "issue_id": issue.id, "title": issue.title, "branch": branch.name,
         })
@@ -164,9 +162,6 @@ class Pipeline:
         self._event("implementation session finished")
         if self.local_git:
             self._commit_and_push(branch, issue)
-        # `devorchestrator pr` runs as a separate process (the human reviews the
-        # code in between), so the issue/branch it needs has to survive on disk.
-        save_pipeline_context(ctx, root=self.workdir)
         return ctx
 
     def prepare_pr(self, ctx: PipelineContext, *, autofix: bool = True) -> PipelineContext:

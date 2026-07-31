@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from devorchestrator.config import ConfigError
-from devorchestrator.mcp.server import MeshTools, build_mcp, build_server_from_config
+from devorchestrator.mcp.server import MeshTools, _parse_args, build_mcp, build_server_from_config
 from devorchestrator.mesh.store import SupabaseMesh
 from tests.conftest import make_config
 from tests.mocks import MockSupabaseClient, MockSupabaseTable
@@ -150,3 +150,25 @@ def test_build_server_from_config_requires_mesh(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("devorchestrator.config.load_config", lambda *a, **k: config)
     with pytest.raises(ConfigError):
         build_server_from_config()
+
+
+def test_main_defaults_to_stdio() -> None:
+    args = _parse_args([])
+    assert args.transport == "stdio"
+    assert args.host is None
+    assert args.port is None
+
+
+def test_main_accepts_http_transport_and_bind() -> None:
+    args = _parse_args(
+        ["--transport", "http", "--host", "0.0.0.0", "--port", "9000", "--path", "/mcp"]
+    )
+    assert args.transport == "http"
+    assert args.host == "0.0.0.0"
+    assert args.port == 9000
+    assert args.path == "/mcp"
+
+
+def test_main_accepts_sse_transport() -> None:
+    args = _parse_args(["-t", "sse"])
+    assert args.transport == "sse"

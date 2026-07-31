@@ -55,10 +55,46 @@ uv run python -m devorchestrator.mcp
 The server speaks MCP over stdio — it won't print anything while idle. In Claude
 Code, `/mcp` shows the registered server and its tools.
 
+## Choosing a transport
+
+The server supports **all MCP transports**; the default is `stdio` because that's
+what Claude Code's `.mcp.json` uses. Configure the rest via flags:
+
+| Transport | Flag |
+|-----------|------|
+| stdio (default) | `--transport stdio` |
+| Streamable HTTP | `--transport http` |
+| HTTP (legacy) | `--transport streamable-http` |
+| SSE | `--transport sse` |
+
+For HTTP/SSE you can also set `--host` (default `127.0.0.1`), `--port`
+(default `8000`) and `--path` (default `/mcp`):
+
+```bash
+# serve on the network for teammates' Claude Code instances
+uv run devorchestrator-mcp --transport http --host 0.0.0.0 --port 8000 --path /mcp
+```
+
+Then register it by URL on the client side instead:
+
+```json
+{
+  "mcpServers": {
+    "devorchestrator-mesh": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+All transports share the same five tools and the same Supabase mesh.
+
 ## How it works
 
 - `src/devorchestrator/mcp/server.py` — `MeshTools` (plain handlers over an
-  injected mesh) + `build_mcp()` (registers them on a `FastMCP` stdio server).
+  injected mesh) + `build_mcp()` (registers them on a `FastMCP` server). `main()`
+  reads `--transport`/`--host`/`--port`/`--path` and serves the chosen transport.
 - Writes carry the config's `name` as `dev`, so activity is attributed correctly.
 - `log_session_event` currently records events in the `events` table. Writing the
   derived `sessions`-table state (so MCP-logged sessions also show in

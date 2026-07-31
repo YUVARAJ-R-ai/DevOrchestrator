@@ -13,6 +13,7 @@ Two layers:
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from dataclasses import asdict, is_dataclass
@@ -105,16 +106,57 @@ def build_server_from_config(
     return build_mcp(MeshTools(mesh, dev=config.name))
 
 
-def main() -> None:
-    """Console-script entry point: build from config and run the stdio server.
+_TRANSPORTS = ("stdio", "http", "streamable-http", "sse")
 
-    All diagnostics go to stderr — stdout is the MCP protocol channel."""
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="devorchestrator-mcp",
+        description="DevOrchestrator mesh MCP server — expose the shared mesh as MCP tools.",
+    )
+    parser.add_argument(
+        "--transport", "-t",
+        choices=_TRANSPORTS,
+        default="stdio",
+        help="MCP transport to serve on (default: stdio, for Claude Code).",
+    )
+    parser.add_argument(
+        "--host", default=None,
+        help="Bind host for http/streamable-http/sse (default: 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--port", type=int, default=None,
+        help="Bind port for http/streamable-http/sse (default: 8000).",
+    )
+    parser.add_argument(
+        "--path", default=None,
+        help="URL path for the MCP endpoint (default: /mcp).",
+    )
+    parser.add_argument(
+        "--config", default=None,
+        help="Directory containing devOrchestrator.yaml (default: current directory).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Console-script entry point: build from config and run the server.
+
+    ``stdio`` is the default so Claude Code's ``.mcp.json`` works out of the box;
+    pass ``--transport http|streamable-http|sse`` (plus ``--host``/``--port``/``--path``)
+    to serve remotely instead. Diagnostics go to stderr — stdout is the protocol channel.
+    """
+    args = _parse_args(argv)
     try:
-        server = build_server_from_config()
+        server = build_server_from_config(args.config)
     except Exception as exc:  # noqa: BLE001 — report cleanly, then exit
         print(f"devorchestrator-mcp: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    server.run(transport="stdio")
+
+    kwargs: dict[str, Any] = {}
+    if args.transport != "stdio":
+        kwargs = {"host": args.host, "port": args.port, "path": args.path}
+    server.run(transport=args.transport, **kwargs)
 
 
 def _as_dict(obj: Any) -> dict[str, Any]:

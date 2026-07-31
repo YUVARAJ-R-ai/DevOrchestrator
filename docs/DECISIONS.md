@@ -115,3 +115,65 @@
 | `tests/test_conflict.py` | Created — 5 tests | #2 |
 | `tests/test_config.py` | Added 2 notifier factory tests | #1 |
 | `docs/DECISIONS.md` | Updated this session | #3 |
+
+---
+
+## Session: Session-aware mesh (Issue #57)
+
+### Decision 1: `sessions` table — additive, idempotent, keyed by `dev + branch + kind`
+- **Context**: The mesh needs to be a live source of truth for "who is in a Claude Code session right now", not just an append-only event log.
+- **Implementation**: Added a `public.sessions` table to `schema.sql` (`dev`, `branch`, `kind`, `state`, `last_seen`, `started_at`, `finished_at`, `payload`, PK `(dev, branch, kind)`), plus `idx_sessions_last_seen` and `idx_sessions_state_last_seen` indexes, RLS enable, and a `service_role` policy.
+- **Why**: All `create ... if not exists`/indexes idempotent, so re-running the migration is safe; the existing `events`/`devs` tables are untouched. The composite PK is the natural upsert target for the *session-emit* issue's `on conflict` writes.
+
+### Decision 2: `SessionActivity` lives in `mesh/store.py`, not `contracts.py`
+- **Context**: The mesh needs a typed return for the new readers, but `contracts.py` is frozen (per `docs/spine.md` §2/§8 — only the Spine owner adds shared types).
+- **Implementation**: Defined `SessionActivity` (frozen dataclass) and `_row_to_session()` in `mesh/store.py`; exported via `__all__`. `Mesh` Protocol untouched.
+- **Why**: Avoids a lane editing the frozen coordination surface; the session-emit writer and live-dashboard reader can import it from `mesh/store.py` directly. If the Spine owner later promotes it into `contracts.py`, that's an additive change.
+
+### Decision 3: Readers — Python-side filtering, degrade to `[]`
+- **Context**: `active_sessions()` (heartbeat within N seconds) and `session_history(limit)` (recent finished sessions) must behave like every other mesh reader.
+- **Implementation**: Both select from `sessions` ordered by `last_seen desc`; window and state filtering happen Python-side (consistent with `list_modules`), so `active_sessions` only returns `state == 'running'` rows with fresh `last_seen`, and `session_history` excludes `running`/`pending`. Every backend error is swallowed, recorded on `last_error`, and returns `[]`.
+- **Why**: Keeps the readers compatible with the lightweight mock client in `tests/mocks.py` and preserves the mesh's "observability, not critical path" contract.
+
+### Files created/modified this session
+
+| File | Action | Issue |
+|------|--------|-------|
+| `src/devorchestrator/mesh/schema.sql` | Added `sessions` table + indexes + RLS/policy | #57 |
+| `src/devorchestrator/mesh/store.py` | Added `SessionActivity`, `active_sessions()`, `session_history()` | #57 |
+| `tests/test_mesh_store.py` | Added 7 tests (active/history/window/limit/empty/degrade) | #57 |
+| `docs/DECISIONS.md` | Updated this session | #57 |
+
+---
+
+## Session: Mesh MCP server (Issue #58)
+
+### Decision 1: Expose the mesh as an MCP server (FastMCP) — additive, no contracts change
+- **Context**: Any Claude Code / agent teammate should be able to read the shared mesh and log decisions/sessions, not just the CLI. The mesh must speak the Model Context Protocol.
+- **Implementation**: Added a new `src/devorchestrator/mcp/` lane module using `fastmcp>=2.0` (v3.4.5 in lock). `MeshTools` wraps `SupabaseMesh`; each method is one tool (`who_is_touching`, `active_sessions`, `recent_decisions`, `log_decision`, `log_session_event`). `build_mcp()`/`build_server_from_config()` construct a FastMCP server named `devorchestrator-mesh`; `python -m devorchestrator.mcp` is the entrypoint and `devorchestrator-mcp` is the console script.
+- **Why**: FastMCP handles protocol handshake, schema generation, and transport plumbing for us. The server is purely additive — `contracts.py`, `cli.py`, and the `Mesh` protocol are untouched; the mesh stays the single source of truth and any error degrades to empty/visible text.
+
+### Decision 2: Configurable transport, stdio by default
+- **Context**: A local Claude Code session spawns the server over stdio, but a remote teammate (another machine/CI) needs an HTTP surface.
+- **Implementation**: `--transport stdio|http|streamable-http|sse` (default `stdio`) plus `--host`, `--port`, `--path`, `--config`. `_parse_args()` maps these onto FastMCP's sync `server.run(transport=...)` dispatcher.
+- **Why**: stdio is the zero-config local default; the HTTP transports let the same binary be deployed as a remote endpoint. Documented in `docs/MCP.md`.
+
+### Decision 3: Read tools return JSON text, not bare lists
+- **Context**: E2E testing showed FastMCP emits no content block when a tool returns `[]` — an empty result is invisible to the model (no text content), so the agent can't tell "no activity" apart from a broken call.
+- **Implementation**: `who_is_touching`, `active_sessions`, and `recent_decisions` return `json.dumps(...)` strings instead of lists.
+- **Why**: A string is always emitted as a visible `TextContent`, so even `[]` reaches the model. Callers parse it with `json.loads`. Regression-tested by `test_read_tools_return_visible_json_text_even_when_empty`.
+
+### Files created/modified this session
+
+| File | Action | Issue |
+|------|--------|-------|
+| `src/devorchestrator/mcp/__init__.py` | Created — module exports | #58 |
+| `src/devorchestrator/mcp/__main__.py` | Created — `python -m` entrypoint | #58 |
+| `src/devorchestrator/mcp/server.py` | Created — `MeshTools`, `build_mcp`, `build_server_from_config`, `_parse_args` | #58 |
+| `pyproject.toml` | Added `fastmcp>=2.0` + `devorchestrator-mcp` script | #58 |
+| `docs/MCP.md` | Created — setup, transports, tool reference | #58 |
+| `tests/test_mcp.py` | Created — 13 tests (tools, transport args, degrade, JSON-text regression) | #58 |
+| `uv.lock` | Locked `fastmcp` (3.4.5) + 3.14 resolution markers | #58 |
+| `docs/DECISIONS.md` | Updated this session | #58 |
+
+---

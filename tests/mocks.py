@@ -86,6 +86,21 @@ class MockSupabaseTable:
         self.inserted.append(data)
         return self
 
+    def upsert(self, data: dict[str, Any], on_conflict: str | None = None) -> MockSupabaseTable:
+        """Mimic upsert: replace the row matching ``on_conflict``, else append.
+
+        ``on_conflict`` may name a composite key ("project,name"), which is what
+        the project-scoped devs table uses.
+        """
+        self.inserted.append(data)
+        if on_conflict:
+            keys = [k.strip() for k in on_conflict.split(",") if k.strip()]
+            self.rows = [
+                r for r in self.rows if any(r.get(k) != data.get(k) for k in keys)
+            ]
+        self.rows.append(data)
+        return self
+
     def select(self, *cols: str) -> MockSupabaseTable:
         return self
 

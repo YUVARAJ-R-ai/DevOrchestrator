@@ -55,6 +55,54 @@ def _pending(exc: LanePending) -> None:
     raise typer.Exit(code=0)
 
 
+def _mesh_or_exit(config: Config):
+    """Build a SupabaseMesh, or exit with a readable reason.
+
+    The mesh commands used to construct the client inline with no guard: an
+    unconfigured mesh, a bad key, or an unreachable host all surfaced as a raw
+    httpx traceback. `init` already reports connection problems this way; these
+    now match it.
+    """
+    if not config.mesh.supabase_url:
+        console.print(
+            "[red]✗[/] no mesh configured — [cyan]mesh.supabase_url[/] is empty in "
+            f"{CONFIG_FILENAME}.\n"
+            "  → run [bold]devorchestrator init[/] and answer yes to the Supabase prompt."
+        )
+        raise typer.Exit(code=2)
+
+    key = os.environ.get(config.mesh.supabase_key_env, "")
+    if not key:
+        console.print(
+            f"[red]✗[/] [cyan]${config.mesh.supabase_key_env}[/] is not set — "
+            "can't reach the mesh.\n  → add it to your .env."
+        )
+        raise typer.Exit(code=2)
+
+    from .mesh.store import SupabaseMesh, create_supabase_client
+
+    try:
+        return SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, key),
+            project=config.project_key,
+        )
+    except Exception as exc:  # noqa: BLE001 - client construction, any failure is fatal here
+        console.print(f"[red]✗[/] could not connect to the mesh: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _mesh_call(what: str, fn, *args, **kwargs):
+    """Run one mesh operation, turning backend failures into a readable line."""
+    try:
+        return fn(*args, **kwargs)
+    except httpx.HTTPError as exc:
+        console.print(f"[red]✗[/] mesh unreachable while trying to {what}: {exc}")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # noqa: BLE001 - supabase-postgrest raises its own types
+        console.print(f"[red]✗[/] mesh error while trying to {what}: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
 def _load_or_exit(ctx: typer.Context, *, check_env: bool = True) -> Config:
     """Load the config for the current invocation, or exit cleanly with the hint.
 
@@ -215,6 +263,57 @@ def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) ->
         console.print(f"[green]✓[/] wrote {env_path}")
 
 
+def _check_project_scope(config: Config, who: httpx.Response, headers: dict[str, str]) -> None:
+    """Warn if the token can't read Projects v2 but the config needs it.
+
+    Only matters when ``board.project_number`` is set — that is what switches
+    GithubBoard onto the GraphQL path. Without it the plain Issues REST API is
+    used and ``repo`` alone is enough.
+
+    Classic PATs report what they were granted in ``X-OAuth-Scopes``; fine-grained
+    tokens don't send it, so those get a real (cheap) GraphQL probe instead of a
+    guess.
+    """
+    if config.board.project_number is None:
+        return
+
+    granted = who.headers.get("X-OAuth-Scopes")
+    if granted is not None:
+        scopes = {s.strip() for s in granted.split(",") if s.strip()}
+        if scopes & {"project", "read:project"}:
+            console.print("[green]✓ token has the project scope[/] (Projects v2 readable)")
+        else:
+            console.print(
+                f"[red]✗ ${config.git.token_env} is missing the [bold]project[/bold] scope[/] — "
+                f"board.project_number is set ({config.board.project_number}), which reads "
+                "Priority/Size via the Projects v2 GraphQL API.\n"
+                "  → add 'project' (or 'read:project') to the token, or remove "
+                "board.project_number to fall back to plain Issues."
+            )
+        return
+
+    # Fine-grained token: no scope header, so ask GitHub directly.
+    try:
+        probe = httpx.post(
+            "https://api.github.com/graphql",
+            headers=headers,
+            json={"query": "query { viewer { login } }"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        console.print(f"[yellow]⚠  could not verify Projects v2 access: {exc}[/]")
+        return
+
+    if probe.status_code == 200 and "errors" not in probe.json():
+        console.print("[green]✓ token can reach the GraphQL API[/] (Projects v2 should work)")
+    else:
+        console.print(
+            "[yellow]⚠  token may not be able to read Projects v2 — "
+            "board.project_number is set, so grant it Projects read access if "
+            "`devorchestrator start` fails to list issues.[/]"
+        )
+
+
 def _test_github_connection(config: Config) -> None:
     """Actually verify the token works and can see the configured repo — not just
     'the field is non-empty', which is all config validation checks."""
@@ -252,6 +351,7 @@ def _test_github_connection(config: Config) -> None:
     )
     if repo_resp.status_code == 200:
         console.print(f"[green]✓ repo access confirmed:[/] {owner}/{repo}")
+        _check_project_scope(config, who, headers)
     else:
         console.print(
             f"[red]✗ cannot access {owner}/{repo} ({repo_resp.status_code}) "
@@ -300,9 +400,16 @@ def init(
             )
         else:
             from .mesh.store import SupabaseMesh, create_supabase_client
-            mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, key))
+            mesh = SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, key),
+            project=config.project_key,
+        )
             if mesh.healthy():
                 mesh.emit("dev_joined", "init", {"dev": config.name})
+                # The event is the audit trail; the devs row is the roster
+                # (carries role + last_seen, and one row per dev rather than
+                # one per join).
+                mesh.register_dev(config.name, config.role.value)
                 console.print(f"[green]✓ registered [bold]{config.name}[/] in mesh[/]")
             else:
                 console.print(
@@ -367,9 +474,10 @@ def pr(
 
     Everything here runs through Pipeline.prepare_pr — the same checks → autofix →
     describe → open_pr → mesh → notify sequence the pipeline tests cover. It used
-    to be reimplemented inline, which meant the autofix path went through
-    checks/autofix.py (which only *logs* that it would re-invoke the agent, and
-    never does) instead of the pipeline's loop that actually re-runs the session.
+    to be reimplemented inline, which meant the autofix path went through a
+    checks/autofix.py helper that only logged that it would re-invoke the agent
+    and never did (since deleted, #49), instead of the pipeline's loop that
+    actually re-runs the session.
     """
     config = _load_or_exit(ctx, check_env=False)
     try:
@@ -494,19 +602,26 @@ def mesh(
     check: list[str] = typer.Option(
         [], "--check", "-c", help="Check if any of these modules have overlapping activity.",
     ),
+    watch: bool = typer.Option(
+        False, "--watch", "-w",
+        help="Live, auto-refreshing view of active sessions (Ctrl-C to exit).",
+    ),
+    interval: float = typer.Option(
+        3.0, "--interval", help="Refresh interval in seconds for --watch.",
+    ),
 ) -> None:
-    """Show the live team activity table from the shared context mesh."""
+    """Show the team activity from the shared context mesh (add --watch for live)."""
     config = _load_or_exit(ctx, check_env=False)
     from .mesh.conflict import warn_on_overlap
-    from .mesh.dashboard import render_dashboard
-    from .mesh.store import SupabaseMesh, create_supabase_client
+    from .mesh.dashboard import render_dashboard, render_dashboard_live
 
-    key = os.environ.get(config.mesh.supabase_key_env, "")
-    client = create_supabase_client(config.mesh.supabase_url, key)
-    mesh_inst = SupabaseMesh(client)
+    mesh_inst = _mesh_or_exit(config)
 
     if check:
-        warnings = warn_on_overlap(mesh_inst, check)
+        warnings = _mesh_call(
+            "check module overlap", warn_on_overlap, mesh_inst, check,
+            self_dev=config.name,
+        )
         if warnings:
             console.print("[bold]Module overlap warnings:[/]")
             for w in warnings:
@@ -515,7 +630,10 @@ def mesh(
         else:
             console.print("[green]✓ No overlapping activity detected[/]\n")
 
-    render_dashboard(mesh_inst)
+    if watch:
+        render_dashboard_live(mesh_inst, console=console, interval=interval)
+    else:
+        _mesh_call("read team activity", render_dashboard, mesh_inst)
 
 
 @app.command()
@@ -526,12 +644,9 @@ def decision(
 ) -> None:
     """Log an architectural decision into the shared mesh, visible to the whole team."""
     config = _load_or_exit(ctx, check_env=False)
-    from .mesh.store import SupabaseMesh, create_supabase_client
+    mesh_inst = _mesh_or_exit(config)
 
-    key = os.environ.get(config.mesh.supabase_key_env, "")
-    client = create_supabase_client(config.mesh.supabase_url, key)
-    mesh_inst = SupabaseMesh(client)
-    mesh_inst.emit("decision", module, {
+    _mesh_call("log the decision", mesh_inst.emit, "decision", module, {
         "dev": config.name,
         "description": message,
         "modules": [module],
@@ -539,7 +654,10 @@ def decision(
     console.print(f"[green]Decision logged:[/] {message}")
 
     from .mesh.conflict import warn_on_overlap
-    warnings = warn_on_overlap(mesh_inst, [module])
+    warnings = _mesh_call(
+        "check module overlap", warn_on_overlap, mesh_inst, [module],
+        self_dev=config.name,
+    )
     if warnings:
         console.print()
         console.print("[yellow]Note: overlapping activity on this module:[/]")

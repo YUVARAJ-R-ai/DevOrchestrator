@@ -22,6 +22,7 @@ it). Rich rendering lives in the CLI and in ``review.py``, not here.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -113,6 +114,13 @@ class Pipeline:
         Returns the populated :class:`PipelineContext`. Raises
         :class:`PipelineAborted` if no task is chosen.
         """
+        # Checked before anything else: _commit_and_push stages with `git add -A`,
+        # so pre-existing edits would be swept into the AI's commit and attributed
+        # to this issue. Failing here costs nothing; failing after the sessions
+        # have run would throw away real work.
+        if self.local_git:
+            self._require_clean_tree()
+
         issues = self.board.fetch_issues()
         if not issues:
             raise PipelineAborted("no open tasks assigned to you on the board.")
@@ -125,6 +133,7 @@ class Pipeline:
         branch = self.git.create_branch(issue, base="dev")
         if self.local_git:
             self._checkout_local(branch)
+        self._move_issue(issue.id, IssueState.in_progress)
         self._emit("task_started", module=_primary_module(branch), payload={
             "issue_id": issue.id, "title": issue.title, "branch": branch.name,
         })
@@ -162,6 +171,9 @@ class Pipeline:
         self._event("implementation session finished")
         if self.local_git:
             self._commit_and_push(branch, issue)
+        # `devorchestrator pr` runs as a separate process (the human reviews the
+        # code in between), so the issue/branch it needs has to survive on disk.
+        save_pipeline_context(ctx, root=self.workdir)
         return ctx
 
     def prepare_pr(self, ctx: PipelineContext, *, autofix: bool = True) -> PipelineContext:
@@ -217,13 +229,11 @@ class Pipeline:
         sessions would edit files on whatever branch happened to be checked out
         before start() ran, not the new one.
         """
-        subprocess.run(["git", "fetch", "origin", branch.name], check=True)
-        result = subprocess.run(
-            ["git", "checkout", "-B", branch.name, f"origin/{branch.name}"],
-            capture_output=True, text=True,
+        self._git(["fetch", "origin", branch.name], f"could not fetch {branch.name}")
+        self._git(
+            ["checkout", "-B", branch.name, f"origin/{branch.name}"],
+            f"could not check out {branch.name} locally",
         )
-        if result.returncode != 0:
-            raise PipelineError(f"could not check out {branch.name} locally: {result.stderr}")
 
     def _commit_and_push(self, branch: BranchRef, issue: Issue) -> None:
         """Commit whatever the impl session changed and push it to ``branch``.
@@ -232,19 +242,51 @@ class Pipeline:
         would open a PR with zero commits (identical to base), since
         create_branch only creates an empty ref.
         """
-        status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
-        )
+        status = self._git(["status", "--porcelain"], "could not read git status")
         if not status.stdout.strip():
             self._event("nothing to commit — implementation session made no changes")
             return
 
-        subprocess.run(["git", "add", "-A"], check=True)
-        subprocess.run(
-            ["git", "commit", "-m", f"issue #{issue.id}: {issue.title}"], check=True
+        self._git(["add", "-A"], "could not stage the implementation's changes")
+        self._git(
+            ["commit", "-m", f"issue #{issue.id}: {issue.title}"],
+            "could not commit the implementation's changes",
         )
-        subprocess.run(["git", "push", "-u", "origin", branch.name], check=True)
+        self._git(["push", "-u", "origin", branch.name], f"could not push {branch.name}")
         self._event(f"committed and pushed to {branch.name}")
+
+    def _require_clean_tree(self) -> None:
+        """Refuse to start with uncommitted changes lying around.
+
+        Raises :class:`PipelineAborted` — this is a "you need to do something
+        first", not a failure of the run.
+        """
+        status = self._git(["status", "--porcelain"], "could not read git status")
+        dirty = [line for line in status.stdout.splitlines() if line.strip()]
+        if not dirty:
+            return
+        preview = "\n".join(f"    {line}" for line in dirty[:10])
+        more = f"\n    …and {len(dirty) - 10} more" if len(dirty) > 10 else ""
+        raise PipelineAborted(
+            "working tree is not clean — commit or stash these first, or they "
+            f"will be committed as part of this task:\n{preview}{more}"
+        )
+
+    @staticmethod
+    def _git(args: list[str], what_failed: str) -> subprocess.CompletedProcess[str]:
+        """Run a git command, raising :class:`PipelineError` with git's own stderr.
+
+        ``check=True`` would raise CalledProcessError, whose message is only the
+        exit status — git's explanation (rejected push, protected branch,
+        detached HEAD) goes to stderr and is discarded. PipelineError is what the
+        CLI already catches and renders, so failures read as one line instead of
+        a traceback.
+        """
+        result = subprocess.run(["git", *args], capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise PipelineError(f"{what_failed}: {detail}" if detail else what_failed)
+        return result
 
     def _artifact_path(self, branch: BranchRef) -> Path:
         return self.workdir / branch.name / "artifact.md"
@@ -449,7 +491,7 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     import importlib.util
     import os
 
-    from .config import BoardType, GitType
+    from .config import BoardType, GitType, require_env
 
     for component, module, where in _REQUIRED_ADAPTERS:
         try:
@@ -479,19 +521,17 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
 
     board = GithubBoard(
         url=config.board.url,
-        token=os.environ[config.board.token_env],
+        token=require_env("board.token_env", config.board.token_env),
         dev_name=config.name,
         project_number=config.board.project_number,
     )
     git = GithubGit(
         url=config.git.url,
-        token=os.environ[config.git.token_env],
+        token=require_env("git.token_env", config.git.token_env),
         # Requests review from this login on every PR — without it nothing is
         # ever "awaiting review" and `devorchestrator review` lists nothing.
         reviewer=config.git.reviewer,
     )
-    research = ClaudeSession(SessionKind.research, agent=config.agent.value)
-    impl = ClaudeSession(SessionKind.impl, agent=config.agent.value)
     checks = SubprocessCheckRunner(all_checks=all_checks)
 
     mesh = None
@@ -499,7 +539,20 @@ def build_pipeline(config: Config, *, workdir: Path | str = ".orchestrator",
     if config.mesh.supabase_url and mesh_key:
         from .mesh.store import SupabaseMesh, create_supabase_client
 
-        mesh = SupabaseMesh(create_supabase_client(config.mesh.supabase_url, mesh_key))
+        mesh = SupabaseMesh(
+            create_supabase_client(config.mesh.supabase_url, mesh_key),
+            project=config.project_key,
+        )
+
+    # Sessions report their own lifecycle (start/heartbeat/end) to the mesh (#56),
+    # so the source of truth is session-level and live — not just pipeline
+    # milestones. mesh may be None (tracking simply no-ops).
+    research = ClaudeSession(
+        SessionKind.research, agent=config.agent.value, mesh=mesh, dev=config.name
+    )
+    impl = ClaudeSession(
+        SessionKind.impl, agent=config.agent.value, mesh=mesh, dev=config.name
+    )
 
     notifier = config.notify.build_notifier() if config.notify is not None else None
 

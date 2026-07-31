@@ -162,6 +162,20 @@ class Config(_Strict):
     )
 
     @property
+    def project_key(self) -> str:
+        """Stable identifier for this project's mesh rows, e.g. ``acme/widgets``.
+
+        The mesh's tables are shared by everything pointing at the same Supabase
+        instance, so every row is scoped by this. Derived from ``git.url`` rather
+        than being another config field to fill in — two checkouts of the same
+        repo must agree on it without anyone remembering to.
+        """
+        path = self.git.url.rstrip("/").removesuffix(".git")
+        # Works for https://host/owner/repo and git@host:owner/repo alike.
+        segments = [s for s in path.replace(":", "/").split("/") if s]
+        return "/".join(segments[-2:]) if len(segments) >= 2 else (segments[-1] if segments else "")
+
+    @property
     def track(self) -> Track:
         """Backend family, auto-detected from the board type.
 
@@ -221,6 +235,24 @@ def _check_track_agrees(config: Config) -> None:
             f"'{config.git.type.value}' — they must be the same track.",
             hint=f"set git.type to '{expected}', or switch board.type to match your git server.",
         )
+
+
+def require_env(field_name: str, var: str) -> str:
+    """Read ``var`` from the environment, or raise :class:`ConfigError`.
+
+    The factories read tokens at construction time, long after ``load_config``'s
+    ``check_env`` pass — a config loaded with ``check_env=False``, or an env var
+    unset between the two, reached ``os.environ[...]`` and produced a bare
+    ``KeyError`` traceback. This keeps that failure in the same shape (and the
+    same wording) as every other config problem the CLI knows how to render.
+    """
+    value = os.environ.get(var)
+    if not value:
+        raise ConfigError(
+            f"required environment variable not set: {field_name} -> ${var}.",
+            hint=f"add it to your .env, e.g. `{var}=...`",
+        )
+    return value
 
 
 def _check_env_vars(config: Config) -> None:

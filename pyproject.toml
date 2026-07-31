@@ -19,6 +19,7 @@ dependencies = [
     "questionary>=2.0",
     "openai>=1.30",
     "libtmux>=0.35",
+    "fastmcp>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,7 @@ brain = ["openai>=1.30"]
 
 [project.scripts]
 devorchestrator = "devorchestrator.cli:main"
+devorchestrator-mcp = "devorchestrator.mcp:main"
 
 [project.urls]
 Homepage = "https://github.com/YUVARAJ-R-ai/DevOrchestrator"

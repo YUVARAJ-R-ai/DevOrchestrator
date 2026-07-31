@@ -127,7 +127,21 @@ class GithubBoard:
         resp.raise_for_status()
         payload = resp.json()
         if "errors" in payload:
-            raise RuntimeError(f"GitHub GraphQL error: {payload['errors']}")
+            errors = payload["errors"]
+            # A token without the project scope fails here, not at the REST
+            # calls, and GitHub's own message ("Resource not accessible by
+            # personal access token") never mentions scopes — so say it plainly.
+            if any(
+                e.get("type") == "FORBIDDEN" or "not accessible" in str(e.get("message", ""))
+                for e in errors
+            ):
+                raise RuntimeError(
+                    "GitHub rejected the Projects (v2) query — your token is most likely "
+                    "missing the 'project' (or 'read:project') scope, which is required "
+                    "when board.project_number is set. Either add the scope to the token "
+                    f"or remove board.project_number to use plain Issues. Raw error: {errors}"
+                )
+            raise RuntimeError(f"GitHub GraphQL error: {errors}")
         return payload["data"]
 
     def _fetch_via_project(self) -> list[Issue]:

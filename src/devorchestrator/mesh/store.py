@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -19,13 +20,49 @@ def create_supabase_client(url: str, key: str) -> SupabaseClient:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SessionActivity:
+    """Who is running (or has run) which agent session, read from the mesh.
+
+    Lives here rather than ``contracts.py`` because that file is frozen (see
+    docs/spine.md §2) — only the Spine owner adds new shared types.
+    """
+
+    dev: str
+    branch: str
+    kind: str
+    state: str
+    last_seen: str
+    started_at: str
+    finished_at: str | None = None
+
+
+def _ts_seconds(value: str | None) -> float | None:
+    """Best-effort ISO-8601 timestamp → epoch seconds. None if unparseable."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 class SupabaseMesh(Mesh):
     """Mesh implementation backed by Supabase/Postgres.
 
-    Expects two tables:
-        events(id UUID PK, dev text, module text, event_type text,
+    Expects three tables:
+        events(id UUID PK, project text, dev text, module text, event_type text,
                payload jsonb, ts timestamptz)
-        devs(name text PK, role text, last_seen timestamptz)
+        devs(project text, name text, role text, last_seen timestamptz)
+        sessions(project text, dev text, branch text, kind text, state text,
+                 last_seen timestamptz, started_at timestamptz,
+                 finished_at timestamptz, payload jsonb,
+                 PK (project, dev, branch, kind))
+
+    Every row is scoped by ``project``. The tables are shared by everything
+    pointing at the same Supabase instance, so without it two repos that both
+    have a module called ``cli.py`` would see each other's activity as a
+    conflict.
 
     **The mesh is observability, not a critical path** — like the brain, it must
     never break the loop. A bad key, a missing table, a network blip: every
@@ -34,8 +71,14 @@ class SupabaseMesh(Mesh):
     surface the state check :meth:`healthy`.
     """
 
-    def __init__(self, client: SupabaseClient) -> None:
+    def __init__(self, client: SupabaseClient, project: str = "") -> None:
+        """``project`` scopes every read and write — see Config.project_key.
+
+        Defaults to empty so an un-scoped instance still works (and reads only
+        un-scoped rows), but callers should always pass it.
+        """
         self._client = client
+        self._project = project
         self.last_error: str | None = None
 
     def healthy(self) -> bool:
@@ -52,6 +95,7 @@ class SupabaseMesh(Mesh):
     def emit(self, event_type: str, module: str, payload: dict) -> None:
         try:
             self._client.table("events").insert({
+                "project": self._project,
                 "event_type": event_type,
                 "module": module,
                 "payload": payload,
@@ -61,12 +105,46 @@ class SupabaseMesh(Mesh):
             self.last_error = None
         except Exception as exc:  # noqa: BLE001 — mesh writes never break the loop
             self.last_error = f"{type(exc).__name__}: {exc}"
+        # Session lifecycle events (#56) also project into the `sessions` table so
+        # active_sessions()/session_history() have current rows to read — without
+        # this the reader (#57) only ever sees an empty table.
+        if event_type.startswith("session_"):
+            self._upsert_session(event_type, payload)
+
+    def _upsert_session(self, event_type: str, payload: dict) -> None:
+        """Fold a session_* event into the current row for (dev, branch, kind).
+
+        started → running; heartbeat → refresh last_seen (state untouched);
+        ended → ended/failed with finished_at. Best-effort like every mesh write.
+        """
+        now = datetime.now(UTC).isoformat()
+        row: dict = {
+            "project": self._project,
+            "dev": payload.get("dev", "unknown"),
+            "branch": payload.get("branch") or "",
+            "kind": payload.get("kind") or "",
+            "last_seen": now,
+            "payload": payload,
+        }
+        if event_type == "session_started":
+            row.update(state="running", started_at=now, finished_at=None)
+        elif event_type == "session_ended":
+            row.update(state="ended" if payload.get("ok", True) else "failed", finished_at=now)
+        else:  # session_heartbeat and any future session_* — just keep it alive
+            row["state"] = "running"
+        try:
+            self._client.table("sessions").upsert(
+                row, on_conflict="project,dev,branch,kind"
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — session tracking never breaks the loop
+            self.last_error = f"{type(exc).__name__}: {exc}"
 
     def who_is_touching(self, module: str) -> list[DevActivity]:
         try:
             result = (
                 self._client.table("events")
                 .select("dev", "module", "event_type", "ts")
+                .eq("project", self._project)
                 .eq("module", module)
                 .order("ts", desc=True)
                 .limit(20)
@@ -86,9 +164,50 @@ class SupabaseMesh(Mesh):
             for row in (result.data or [])
         ]
 
+    def register_dev(self, name: str, role: str = "dev") -> None:
+        """Upsert this developer into ``devs`` and refresh ``last_seen``.
+
+        The table shipped in schema.sql from the start but nothing ever wrote to
+        it, so the roster it exists for had to be inferred from distinct ``dev``
+        values in ``events`` — which only lists people who happen to have run a
+        task, and cannot carry a role. Called by ``devorchestrator init``.
+        """
+        try:
+            self._client.table("devs").upsert(
+                {
+                    "project": self._project,
+                    "name": name,
+                    "role": role,
+                    "last_seen": datetime.now(UTC).isoformat(),
+                },
+                on_conflict="project,name",
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — roster is metadata, never fatal
+            self.last_error = f"{type(exc).__name__}: {exc}"
+
+    def team_roster(self) -> list[tuple[str, str, str]]:
+        """(name, role, last_seen) for everyone registered, most recent first."""
+        try:
+            result = (
+                self._client.table("devs")
+                .select("name", "role", "last_seen")
+                .eq("project", self._project)
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        return [(r["name"], r["role"], r["last_seen"]) for r in (result.data or [])]
+
     def list_modules(self) -> list[str]:
         try:
-            result = self._client.table("events").select("module").execute()
+            result = (
+                self._client.table("events")
+                .select("module")
+                .eq("project", self._project)
+                .execute()
+            )
         except Exception as exc:  # noqa: BLE001 — reads degrade to empty
             self.last_error = f"{type(exc).__name__}: {exc}"
             return []
@@ -104,6 +223,7 @@ class SupabaseMesh(Mesh):
             result = (
                 self._client.table("events")
                 .select("*")
+                .eq("project", self._project)
                 .eq("event_type", "decision")
                 .order("ts", desc=True)
                 .limit(limit)
@@ -122,5 +242,62 @@ class SupabaseMesh(Mesh):
             for row in (result.data or [])
         ]
 
+    def active_sessions(self, within_seconds: int = 60) -> list[SessionActivity]:
+        """Sessions still live right now — ``state == 'running'`` and ``last_seen``
+        fresh enough that the session is likely still alive. Newest first."""
+        try:
+            result = (
+                self._client.table("sessions")
+                .select("*")
+                .eq("project", self._project)
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        cutoff = datetime.now(UTC).timestamp() - within_seconds
+        active: list[SessionActivity] = []
+        for row in (result.data or []):
+            if row.get("state") != "running":
+                continue
+            last_seen = _ts_seconds(row.get("last_seen"))
+            if last_seen is None or last_seen < cutoff:
+                continue
+            active.append(_row_to_session(row))
+        return active
 
-__all__ = ["SupabaseMesh"]
+    def session_history(self, limit: int = 10) -> list[SessionActivity]:
+        """Recent finished sessions (anything not running/pending), newest first."""
+        try:
+            result = (
+                self._client.table("sessions")
+                .select("*")
+                .eq("project", self._project)
+                .order("last_seen", desc=True)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — reads degrade to empty
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return []
+        finished = [
+            _row_to_session(row)
+            for row in (result.data or [])
+            if row.get("state") not in ("running", "pending")
+        ]
+        return finished[:limit]
+
+
+def _row_to_session(row: dict) -> SessionActivity:
+    return SessionActivity(
+        dev=row.get("dev", "unknown"),
+        branch=row.get("branch", ""),
+        kind=row.get("kind", ""),
+        state=row.get("state", ""),
+        last_seen=row.get("last_seen", ""),
+        started_at=row.get("started_at", ""),
+        finished_at=row.get("finished_at"),
+    )
+
+
+__all__ = ["SupabaseMesh", "SessionActivity"]

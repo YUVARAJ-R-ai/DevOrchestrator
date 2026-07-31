@@ -260,6 +260,57 @@ def _scaffold_env(env_path: Path, required: list[tuple[str, str, bool, str]]) ->
         console.print(f"[green]✓[/] wrote {env_path}")
 
 
+def _check_project_scope(config: Config, who: httpx.Response, headers: dict[str, str]) -> None:
+    """Warn if the token can't read Projects v2 but the config needs it.
+
+    Only matters when ``board.project_number`` is set — that is what switches
+    GithubBoard onto the GraphQL path. Without it the plain Issues REST API is
+    used and ``repo`` alone is enough.
+
+    Classic PATs report what they were granted in ``X-OAuth-Scopes``; fine-grained
+    tokens don't send it, so those get a real (cheap) GraphQL probe instead of a
+    guess.
+    """
+    if config.board.project_number is None:
+        return
+
+    granted = who.headers.get("X-OAuth-Scopes")
+    if granted is not None:
+        scopes = {s.strip() for s in granted.split(",") if s.strip()}
+        if scopes & {"project", "read:project"}:
+            console.print("[green]✓ token has the project scope[/] (Projects v2 readable)")
+        else:
+            console.print(
+                f"[red]✗ ${config.git.token_env} is missing the [bold]project[/bold] scope[/] — "
+                f"board.project_number is set ({config.board.project_number}), which reads "
+                "Priority/Size via the Projects v2 GraphQL API.\n"
+                "  → add 'project' (or 'read:project') to the token, or remove "
+                "board.project_number to fall back to plain Issues."
+            )
+        return
+
+    # Fine-grained token: no scope header, so ask GitHub directly.
+    try:
+        probe = httpx.post(
+            "https://api.github.com/graphql",
+            headers=headers,
+            json={"query": "query { viewer { login } }"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        console.print(f"[yellow]⚠  could not verify Projects v2 access: {exc}[/]")
+        return
+
+    if probe.status_code == 200 and "errors" not in probe.json():
+        console.print("[green]✓ token can reach the GraphQL API[/] (Projects v2 should work)")
+    else:
+        console.print(
+            "[yellow]⚠  token may not be able to read Projects v2 — "
+            "board.project_number is set, so grant it Projects read access if "
+            "`devorchestrator start` fails to list issues.[/]"
+        )
+
+
 def _test_github_connection(config: Config) -> None:
     """Actually verify the token works and can see the configured repo — not just
     'the field is non-empty', which is all config validation checks."""
@@ -297,6 +348,7 @@ def _test_github_connection(config: Config) -> None:
     )
     if repo_resp.status_code == 200:
         console.print(f"[green]✓ repo access confirmed:[/] {owner}/{repo}")
+        _check_project_scope(config, who, headers)
     else:
         console.print(
             f"[red]✗ cannot access {owner}/{repo} ({repo_resp.status_code}) "
